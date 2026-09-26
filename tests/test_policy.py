@@ -46,7 +46,7 @@ def test_unknown_agent_hard_blocked():
     assert decision.correction.required_actions == []
 
 
-def test_disallowed_tool_hard_blocked_even_when_loose():
+def test_loose_strictness_allows_sequence_violation_with_warning():
     config_dict = {
         **BASE_CONFIG,
         "policies": {
@@ -67,6 +67,30 @@ def test_disallowed_tool_hard_blocked_even_when_loose():
     assert decision.allowed
     assert decision.enforce is False
     assert decision.correction.violation == ViolationType.MISSING_PREREQUISITE
+
+
+def test_disallowed_tool_hard_blocked_even_when_loose():
+    """allowed_tools is enforced regardless of strictness — unlike sequence
+    violations, a loose agent still cannot call a tool outside its list."""
+    config_dict = {
+        "tools": BASE_CONFIG["tools"],
+        "policies": {
+            "strict-payments": {
+                "agents": {
+                    "payment_agent": {
+                        "allowed_tools": ["verify_account", "get_balance"],  # send_payment excluded
+                        "sequences": [],
+                        "strictness": "loose",
+                    }
+                }
+            }
+        },
+    }
+    engine, _ = make_engine(config_dict)
+    decision = engine.check_request("s1", "payment_agent", "send_payment", {"account_id": "A"})
+    assert not decision.allowed
+    assert decision.enforce is True
+    assert decision.correction.violation == ViolationType.DISALLOWED_TOOL
 
 
 def test_missing_prerequisite_strict_blocks():
