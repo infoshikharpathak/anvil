@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Tools — Anvil Registry{% endblock %}
+{% block content %}
+<h1>Registered tools</h1>
+<p class="subtitle">Every tool a policy can reference. Export a schema to hand to an agent framework directly.</p>
+
+<div class="panel">
+  <table>
+    <thead><tr><th>Name</th><th>Endpoint</th><th>Method</th><th>Trust</th><th>Schema export</th></tr></thead>
+    <tbody>
+      {% for name, tool in tools.items() %}
+      <tr>
+        <td class="mono">{{ name }}</td>
+        <td class="mono text-dim">{{ tool.endpoint }}</td>
+        <td>{{ tool.method }}</td>
+        <td><span class="badge {{ tool.trust }}">{{ tool.trust }}</span></td>
+        <td>
+          <div class="pill-list">
+            <a href="/tools/{{ name }}/schema?format=openai" class="pill" target="_blank">openai</a>
+            <a href="/tools/{{ name }}/schema?format=anthropic" class="pill" target="_blank">anthropic</a>
+            <a href="/tools/{{ name }}/schema?format=raw" class="pill" target="_blank">raw</a>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty-state">No tools registered.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

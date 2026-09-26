@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Orphans — Anvil Registry{% endblock %}
+{% block content %}
+<h1>Orphan sessions</h1>
+<p class="subtitle">Sessions that checked out a policy but never sent a matching trace within the session_ttl window — crashed, lost connectivity, or tampered with.</p>
+
+<div class="panel">
+  <table>
+    <thead><tr><th>Session</th><th>Policy</th><th>Client</th><th>Checked out</th><th>Elapsed</th></tr></thead>
+    <tbody>
+      {% for o in orphans %}
+      <tr>
+        <td class="mono">{{ o.session_id }}</td>
+        <td>{{ o.policy_name }}</td>
+        <td>{{ o.client_id or "—" }}</td>
+        <td class="text-dim">{{ o.checked_out_at }}</td>
+        <td><span class="badge orphan">{{ "%.0f"|format(o.seconds_since_checkout) }}s</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty-state">No orphans — every checked-out session has reported back.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

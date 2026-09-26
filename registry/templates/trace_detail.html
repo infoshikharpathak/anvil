@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ trace.session_id }} — Anvil Registry{% endblock %}
+{% block content %}
+<h1 class="mono">{{ trace.session_id }}</h1>
+<p class="subtitle">Policy: {{ trace.policy }} · {{ trace.started_at }} → {{ trace.ended_at }}</p>
+
+<div class="card-row">
+  <div class="stat-card"><div class="value">{{ trace.summary.total_calls }}</div><div class="label">Total calls</div></div>
+  <div class="stat-card"><div class="value" style="color:var(--success)">{{ trace.summary.successful }}</div><div class="label">Successful</div></div>
+  <div class="stat-card"><div class="value" style="color:var(--danger)">{{ trace.summary.blocked }}</div><div class="label">Blocked</div></div>
+  <div class="stat-card"><div class="value" style="color:var(--warn)">{{ trace.summary.response_withheld }}</div><div class="label">Response withheld</div></div>
+</div>
+
+<div class="panel">
+  <h2>Call timeline</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Tool</th><th>Agent</th><th>Params</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for c in trace.calls %}
+      <tr>
+        <td class="text-dim">{{ c.timestamp }}</td>
+        <td class="mono">{{ c.tool }}</td>
+        <td>{{ c.agent }}</td>
+        <td class="mono text-dim">{{ c.params }}</td>
+        <td><span class="badge {{ c.result }}">{{ c.result }}</span></td>
+        <td class="text-dim">{{ c.correction_message or "" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty-state">No calls recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

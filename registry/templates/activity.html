@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Activity — Anvil Registry{% endblock %}
+{% block content %}
+<h1><span class="live-dot"></span>Activity</h1>
+<p class="subtitle">
+  Not a call-by-call stream — the library only reports to the registry at session start (policy checkout)
+  and session end (trace flush), to keep the per-call path a single hop. This polls both every 3s.
+</p>
+
+<div class="panel">
+  <h2>Active sessions</h2>
+  <table>
+    <thead><tr><th>Session</th><th>Policy</th><th>Client</th><th>Status</th><th>Checked out</th></tr></thead>
+    <tbody id="active-sessions-body">
+      <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Recent completed traces</h2>
+  <table>
+    <thead><tr><th>Session</th><th>Policy</th><th>Calls</th><th>Outcome</th><th>Ended</th></tr></thead>
+    <tbody id="recent-traces-body">
+      <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

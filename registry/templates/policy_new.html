@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}New Policy — Anvil Registry{% endblock %}
+{% block content %}
+<h1>New policy</h1>
+<p class="subtitle">Register a new pipeline: define which agents exist, what tools each may call, and in what order.</p>
+
+<div class="panel">
+  <form id="policy-form">
+    <div class="form-row">
+      <label for="policy-name">Policy name</label>
+      <input type="text" id="policy-name" placeholder="e.g. light-summarization" autocomplete="off">
+    </div>
+    <div class="form-row">
+      <label for="policy-json">Config (JSON)</label>
+      <textarea id="policy-json" class="json-editor">{{ skeleton_json }}</textarea>
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn">Create policy</button>
+      <a href="/ui/policies" class="btn secondary">Cancel</a>
+      <span id="policy-status" class="status-msg"></span>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  initPolicyForm({ mode: "create" });
+</script>
+{% endblock %}

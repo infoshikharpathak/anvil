@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Anvil Registry{% endblock %}
+{% block content %}
+<h1>Registry Overview</h1>
+<p class="subtitle">In-memory v1 store — resets on restart. {{ policies|length }} polic{{ 'y' if policies|length == 1 else 'ies' }} loaded from anvil.yaml.</p>
+
+<div class="card-row">
+  <div class="stat-card"><div class="value">{{ policies|length }}</div><div class="label">Policies</div></div>
+  <div class="stat-card"><div class="value">{{ tools|length }}</div><div class="label">Registered tools</div></div>
+  <div class="stat-card"><div class="value">{{ active_checkouts }}</div><div class="label">Active sessions</div></div>
+  <div class="stat-card"><div class="value">{{ traces|length }}</div><div class="label">Completed traces</div></div>
+  <div class="stat-card"><div class="value" style="color: {{ 'var(--danger)' if orphans else 'var(--text)' }}">{{ orphans }}</div><div class="label">Orphan sessions</div></div>
+</div>
+
+<div class="panel">
+  <div class="flex-between">
+    <h2>Policies</h2>
+    <a class="btn secondary" href="/ui/policies/new">+ New policy</a>
+  </div>
+  <table>
+    <thead><tr><th>Name</th><th>Description</th><th>Agents</th></tr></thead>
+    <tbody>
+      {% for name, policy in policies.items() %}
+      <tr>
+        <td><a href="/ui/policies/{{ name }}">{{ name }}</a></td>
+        <td class="text-dim">{{ policy.description or "—" }}</td>
+        <td>{{ policy.agents|length }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="empty-state">No policies configured.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Recent traces</h2>
+  <table>
+    <thead><tr><th>Session</th><th>Policy</th><th>Calls</th><th>Ended</th></tr></thead>
+    <tbody>
+      {% for t in traces[:5] %}
+      <tr>
+        <td><a href="/ui/traces/{{ t.session_id }}" class="mono">{{ t.session_id }}</a></td>
+        <td>{{ t.policy }}</td>
+        <td>{{ t.summary.total_calls }}</td>
+        <td class="text-dim">{{ t.ended_at }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty-state">No traces yet — run the demo to populate this.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

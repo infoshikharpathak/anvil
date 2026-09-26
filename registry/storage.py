@@ -74,6 +74,27 @@ class RegistryStorage:
     def get_trace(self, session_id: str) -> StoredTrace | None:
         return self._traces.get(session_id)
 
+    def list_checkouts(self) -> list[dict[str, Any]]:
+        """All sessions that fetched a policy but haven't posted a trace yet
+        (in-flight or, past session_ttl, likely orphaned). Used by the UI's
+        activity feed to show sessions currently in progress."""
+        now = time.monotonic()
+        result = []
+        for session_id, checkout in self._checkouts.items():
+            elapsed = now - self._checkout_monotonic[session_id]
+            result.append(
+                {
+                    "session_id": session_id,
+                    "policy_name": checkout.policy_name,
+                    "client_id": checkout.client_id,
+                    "checked_out_at": checkout.checked_out_at,
+                    "elapsed_seconds": round(elapsed, 1),
+                    "status": "orphan" if elapsed > self.session_ttl else "active",
+                }
+            )
+        result.sort(key=lambda c: c["checked_out_at"], reverse=True)
+        return result
+
     def orphan_sessions(self) -> list[OrphanSession]:
         now = time.monotonic()
         orphans = []

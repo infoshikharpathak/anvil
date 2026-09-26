@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Anvil Registry{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="topbar">
+    <a class="brand" href="/">⚒ Anvil Registry</a>
+    <nav>
+      <a href="/" class="{{ 'active' if active == 'dashboard' else '' }}">Dashboard</a>
+      <a href="/ui/policies" class="{{ 'active' if active == 'policies' else '' }}">Policies</a>
+      <a href="/ui/tools" class="{{ 'active' if active == 'tools' else '' }}">Tools</a>
+      <a href="/ui/activity" class="{{ 'active' if active == 'activity' else '' }}">Activity</a>
+      <a href="/ui/orphans" class="{{ 'active' if active == 'orphans' else '' }}">Orphans</a>
+    </nav>
+  </div>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

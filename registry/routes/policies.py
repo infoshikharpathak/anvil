@@ -4,9 +4,25 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from anvil.models import PolicyConfig
+from anvil.config import ConfigError, validate_config
+from anvil.models import AnvilConfig, PolicyConfig
 
 router = APIRouter(tags=["policies"])
+
+
+def _validate_against_registry(storage, policy_name: str, policy: PolicyConfig) -> None:
+    """Run the same fail-fast checks the YAML loader applies (dangling tool
+    references, cycles, etc.) against the registry's current tool set, so a
+    policy created/edited through the API or UI can't skip them."""
+    candidate = AnvilConfig(
+        tools=storage.list_tools(),
+        policies={policy_name: policy},
+        settings=storage.settings,
+    )
+    try:
+        validate_config(candidate)
+    except ConfigError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @router.get("/policies")
@@ -44,6 +60,7 @@ def create_policy(name: str, policy: PolicyConfig, request: Request) -> dict:
     storage = request.app.state.storage
     if name in storage.list_policies():
         raise HTTPException(status_code=409, detail=f"Policy '{name}' already exists")
+    _validate_against_registry(storage, name, policy)
     storage.upsert_policy(name, policy)
     return {"created": name}
 
@@ -51,5 +68,6 @@ def create_policy(name: str, policy: PolicyConfig, request: Request) -> dict:
 @router.put("/policies/{policy_name}")
 def update_policy(policy_name: str, policy: PolicyConfig, request: Request) -> dict:
     storage = request.app.state.storage
+    _validate_against_registry(storage, policy_name, policy)
     storage.upsert_policy(policy_name, policy)
     return {"updated": policy_name}

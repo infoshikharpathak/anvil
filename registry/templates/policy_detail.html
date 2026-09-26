@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ policy_name }} — Anvil Registry{% endblock %}
+{% block content %}
+<h1>{{ policy_name }}</h1>
+<p class="subtitle">{{ policy.description or "No description." }}</p>
+
+<div class="panel">
+  <h2>Agents at a glance</h2>
+  <table>
+    <thead><tr><th>Agent</th><th>Allowed tools</th><th>Strictness</th><th>Sequences</th></tr></thead>
+    <tbody>
+      {% for agent_id, agent in policy.agents.items() %}
+      <tr>
+        <td class="mono">{{ agent_id }}</td>
+        <td><div class="pill-list">{% for t in agent.allowed_tools %}<span class="pill">{{ t }}</span>{% endfor %}</div></td>
+        <td><span class="badge {{ agent.strictness }}">{{ agent.strictness }}</span></td>
+        <td class="text-dim">{{ agent.sequences|length }} rule{{ '' if agent.sequences|length == 1 else 's' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <div class="flex-between">
+    <h2>Edit (raw config)</h2>
+    <span class="text-dim" style="font-size:12px;">Saves via <span class="mono">PUT /policies/{{ policy_name }}</span></span>
+  </div>
+  <form id="policy-form">
+    <textarea id="policy-json" class="json-editor">{{ policy_json }}</textarea>
+    <div class="actions">
+      <button type="submit" class="btn">Save changes</button>
+      <span id="policy-status" class="status-msg"></span>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  initPolicyForm({ mode: "edit", policyName: {{ policy_name|tojson }} });
+</script>
+{% endblock %}

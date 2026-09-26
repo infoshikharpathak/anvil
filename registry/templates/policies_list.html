@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Policies — Anvil Registry{% endblock %}
+{% block content %}
+<div class="flex-between">
+  <div>
+    <h1>Policies</h1>
+    <p class="subtitle">Named profiles defining which tools each agent can call, in what order.</p>
+  </div>
+  <a class="btn" href="/ui/policies/new">+ New policy</a>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr><th>Name</th><th>Description</th><th>Agents</th></tr></thead>
+    <tbody>
+      {% for name, policy in policies.items() %}
+      <tr>
+        <td><a href="/ui/policies/{{ name }}">{{ name }}</a></td>
+        <td class="text-dim">{{ policy.description or "—" }}</td>
+        <td>
+          <div class="pill-list">
+            {% for agent_id, agent in policy.agents.items() %}
+            <span class="pill">{{ agent_id }} <span class="badge {{ agent.strictness }}">{{ agent.strictness }}</span></span>
+            {% endfor %}
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="empty-state">No policies configured. <a href="/ui/policies/new">Create one</a>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

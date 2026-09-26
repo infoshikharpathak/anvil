@@ -22,6 +22,14 @@ def list_traces(request: Request, limit: int = 50) -> list[dict]:
     return [t.model_dump() for t in storage.list_traces(limit=limit)]
 
 
+@router.get("/checkouts")
+def list_checkouts(request: Request) -> list[dict]:
+    """Sessions that fetched a policy but haven't posted a trace yet —
+    in-flight (status=active) or past session_ttl (status=orphan)."""
+    storage = request.app.state.storage
+    return storage.list_checkouts()
+
+
 @router.get("/traces/orphans")
 def list_orphans(request: Request) -> list[dict]:
     """Sessions that checked out a policy but never sent a matching trace
