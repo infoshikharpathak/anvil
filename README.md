@@ -1,5 +1,9 @@
 # Anvil
 
+[![CI](https://github.com/infoshikharpathak/anvil/actions/workflows/ci.yml/badge.svg)](https://github.com/infoshikharpathak/anvil/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+
 Framework-agnostic tool governance for agentic AI pipelines. Enforces execution policy, validates tool responses, and keeps agents on track — without crashing the pipeline.
 
 ## Architecture
