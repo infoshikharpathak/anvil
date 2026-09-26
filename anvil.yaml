@@ -1,0 +1,86 @@
+tools:
+  verify_account:
+    endpoint: "http://localhost:8001/verify"
+    method: POST
+    description: "Verify account ownership"
+    trust: trusted
+    timeout: 5
+    injection_scanning: true
+    parameters:
+      type: object
+      properties:
+        account_id:
+          type: string
+          description: "The account ID to verify"
+      required: [account_id]
+    response_schema:
+      required_fields: ["account_id", "verified", "timestamp"]
+
+  send_payment:
+    endpoint: "http://localhost:8001/pay"
+    method: POST
+    description: "Execute payment transfer"
+    trust: untrusted
+    timeout: 10
+    parameters:
+      type: object
+      properties:
+        account_id:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+      required: [account_id, amount]
+    response_schema:
+      required_fields: ["transaction_id", "status", "amount"]
+
+  get_balance:
+    endpoint: "http://localhost:8001/balance"
+    method: GET
+    description: "Get account balance"
+    trust: trusted
+    timeout: 5
+    parameters:
+      type: object
+      properties:
+        account_id:
+          type: string
+      required: [account_id]
+    response_schema:
+      required_fields: ["account_id", "balance", "currency"]
+
+  send_notification:
+    endpoint: "http://localhost:8001/notify"
+    method: POST
+    description: "Send notification to user"
+    trust: trusted
+    timeout: 5
+
+policies:
+  strict-payments:
+    description: "Strict policy for payment processing pipelines"
+    agents:
+      payment_agent:
+        allowed_tools: [verify_account, send_payment, get_balance]
+        sequences:
+          - before: send_payment
+            requires: [verify_account, get_balance]
+            match_fields: [account_id]
+          - before: get_balance
+            requires: [verify_account]
+            match_fields: [account_id]
+        strictness: strict
+        trust_overrides:
+          get_balance: untrusted
+      notification_agent:
+        allowed_tools: [send_notification]
+        sequences: []
+        strictness: loose
+
+settings:
+  injection_scanning: true
+  default_strictness: strict
+  default_trust: untrusted
+  session_ttl: 3600
+  trace_fallback_dir: "./anvil_traces"
