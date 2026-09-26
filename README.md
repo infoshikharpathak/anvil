@@ -11,6 +11,7 @@ Framework-agnostic tool governance for agentic AI pipelines. Enforces execution 
 │  - Trace collection & querying                       │
 │  - Tool schema export (openai / anthropic / raw)     │
 │  - Orphan session detection                          │
+│  - Server-rendered UI (dashboard/policies/activity)  │
 └──────────┬──────────────────────────┬────────────────┘
            │ 1. Fetch policy bundle   │ 3. Flush session trace
            │    (startup, one call)   │    (session end, one call)
@@ -40,11 +41,13 @@ pip install -e ".[dev]"
 python examples/mock_tools.py
 
 # Terminal 2: registry
-uvicorn registry.app:app --port 8100
+ANVIL_CONFIG=anvil.yaml uvicorn registry.app:app --port 8100
 
 # Terminal 3: demo
 python examples/demo.py
 ```
+
+Then open **http://localhost:8100/** for the registry UI (dashboard, policies, tools, activity, orphans — see below).
 
 Or skip the registry entirely for local dev:
 
@@ -137,9 +140,30 @@ GET /tools/send_payment/schema?format=openai
 GET /tools/send_payment/schema?format=anthropic
 ```
 
+## Registry UI (v2)
+
+Server-rendered pages served directly by the registry app — Jinja2 templates, no build step, no separate frontend process. Vanilla JS handles the interactive bits (saving a policy, polling for activity) by calling the same JSON API described above.
+
+| Page | Path | What it does |
+|---|---|---|
+| Dashboard | `/` | Policy/tool/session/trace/orphan counts, recent traces |
+| Policies | `/ui/policies` | List all policies |
+| Policy detail | `/ui/policies/{name}` | Agent summary + a raw-JSON editor that saves via the existing `PUT /policies/{name}` |
+| New policy | `/ui/policies/new` | Register a new pipeline (`POST /policies`) — this is how you add a policy for a new agent/pipeline |
+| Tools | `/ui/tools` | Registered tools with one-click schema export links (openai/anthropic/raw) |
+| Activity | `/ui/activity` | Active sessions + recent completed traces, polled every 3s |
+| Orphans | `/ui/orphans` | Sessions that checked out a policy but never sent a trace |
+| Trace detail | `/ui/traces/{session_id}` | Full call timeline for one session |
+
+**"Activity" is not a call-by-call stream.** The library only talks to the registry at session start (policy checkout) and session end (trace flush) — that's the whole point of the one-hop design (see Architecture above). So the activity feed shows sessions currently checked out plus completed traces, polled periodically; it will not show individual tool calls as they happen mid-session. The page says so.
+
+Creating or editing a policy through the UI (or the raw API) runs the same fail-fast validation the YAML loader applies — dangling tool references and circular prerequisites are rejected with a 422, not silently accepted.
+
+There is currently no authentication on any of this — anyone who can reach the registry can create, edit, or read any policy. See Security Model below.
+
 ## Security Model (v1)
 
-Anvil v1 trusts the calling code to pass a correct `agent_id`. There is no authentication on the library or registry — any code using the library can claim to be any agent. **This is a deliberate v1 scope decision.** Anvil guards against agent error and misconfiguration, not adversarial agents or compromised application code. Authenticated agent identity is v2.
+Anvil v1 trusts the calling code to pass a correct `agent_id`. There is no authentication on the library, the registry API, or the registry UI — any code using the library can claim to be any agent, and anyone who can reach the registry can create or edit policies (including through the UI added in v2). **This is a deliberate scope decision, not an oversight.** Anvil guards against agent error and misconfiguration, not adversarial agents or compromised application/network access. Authenticated agent identity and access control on policy edits are a future milestone.
 
 Injection scanning is pattern-based, not ML-based — expect false negatives on novel phrasing and occasional false positives on tools that legitimately discuss prompt injection (use `injection_scanning: false` per-tool to override).
 
