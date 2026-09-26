@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{{ policy_name }} — Anvil Registry{% endblock %}
 {% block content %}
-<h1>{{ policy_name }}</h1>
-<p class="subtitle">{{ policy.description or "No description." }}</p>
+<div class="flex-between">
+  <div>
+    <h1>{{ policy_name }}</h1>
+    <p class="subtitle">{{ policy.description or "No description." }}</p>
+  </div>
+  <button id="delete-policy-btn" class="btn secondary" style="color:var(--danger);border-color:var(--danger);">Delete policy</button>
+</div>
 
 <div class="panel">
   <h2>Agents at a glance</h2>
@@ -38,5 +43,6 @@
 {% block scripts %}
 <script>
   initPolicyForm({ mode: "edit", policyName: {{ policy_name|tojson }} });
+  initDeletePolicyButton({ policyName: {{ policy_name|tojson }} });
 </script>
 {% endblock %}

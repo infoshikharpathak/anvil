@@ -63,6 +63,21 @@ function initPolicyForm({ mode, policyName }) {
   });
 }
 
+function initDeletePolicyButton({ policyName }) {
+  const btn = document.getElementById("delete-policy-btn");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    if (!confirm(`Delete policy "${policyName}"? This cannot be undone.`)) return;
+    try {
+      await postJSON(`/policies/${encodeURIComponent(policyName)}`, "DELETE");
+      window.location.href = "/ui/policies";
+    } catch (err) {
+      alert("Could not delete: " + err.message);
+    }
+  });
+}
+
 // -- Activity feed (activity.html) ------------------------------------------
 
 function fmtSeconds(s) {

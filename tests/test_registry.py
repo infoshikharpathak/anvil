@@ -83,6 +83,35 @@ def test_create_policy_rejects_duplicate_name(client):
     assert resp.status_code == 409
 
 
+def test_delete_policy_removes_it(client):
+    resp = client.post(
+        "/policies",
+        params={"name": "to-delete"},
+        json={"agents": {"a": {"allowed_tools": ["verify_account"], "sequences": []}}},
+    )
+    assert resp.status_code == 200
+
+    resp = client.delete("/policies/to-delete")
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": "to-delete"}
+    assert client.get("/policies/to-delete").status_code == 404
+
+
+def test_delete_unknown_policy_404s(client):
+    resp = client.delete("/policies/does-not-exist")
+    assert resp.status_code == 404
+
+
+def test_delete_policy_with_active_session_is_blocked(client):
+    # check out strict-payments -> creates an active checkout
+    client.get("/policies/strict-payments", headers={"X-Session-Id": "sess-in-flight"})
+    resp = client.delete("/policies/strict-payments")
+    assert resp.status_code == 409
+    assert "sess-in-flight" in resp.json()["detail"]
+    # policy must still exist
+    assert client.get("/policies/strict-payments").status_code == 200
+
+
 def test_update_policy_also_validates(client):
     resp = client.put(
         "/policies/strict-payments",

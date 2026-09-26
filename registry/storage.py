@@ -42,6 +42,9 @@ class RegistryStorage:
     def upsert_policy(self, name: str, policy: PolicyConfig) -> None:
         self.policies[name] = policy
 
+    def delete_policy(self, name: str) -> None:
+        self.policies.pop(name, None)
+
     # -- tools --------------------------------------------------------------
 
     def list_tools(self) -> dict[str, ToolConfig]:

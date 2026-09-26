@@ -71,3 +71,22 @@ def update_policy(policy_name: str, policy: PolicyConfig, request: Request) -> d
     _validate_against_registry(storage, policy_name, policy)
     storage.upsert_policy(policy_name, policy)
     return {"updated": policy_name}
+
+
+@router.delete("/policies/{policy_name}")
+def delete_policy(policy_name: str, request: Request) -> dict:
+    storage = request.app.state.storage
+    if policy_name not in storage.list_policies():
+        raise HTTPException(status_code=404, detail=f"Policy '{policy_name}' not found")
+    active = [c for c in storage.list_checkouts() if c["policy_name"] == policy_name and c["status"] == "active"]
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Policy '{policy_name}' has {len(active)} active session(s) still checked out "
+                f"(e.g. {active[0]['session_id']}). Wait for them to complete or let them expire "
+                f"before deleting."
+            ),
+        )
+    storage.delete_policy(policy_name)
+    return {"deleted": policy_name}
