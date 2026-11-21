@@ -94,6 +94,11 @@ class ToolConfig(BaseModel):
     injection_scanning: bool = True
     parameters: dict[str, Any] | None = None
     response_schema: ResponseSchema | None = None
+    # Response fields to strip before anyone downstream sees them: the agent,
+    # injection scans, schema checks, traces. Matched by key name at any
+    # depth. For secrets a tool returns but the agent must never hold (an
+    # OTP, a token).
+    redact_fields: list[str] = Field(default_factory=list)
 
 
 class AppAuth(BaseModel):

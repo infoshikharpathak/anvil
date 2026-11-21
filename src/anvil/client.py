@@ -548,7 +548,8 @@ class Anvil:
                 resp.raise_for_status()
                 # An upstream that echoes request headers must not hand the
                 # secret back to the agent, the trace, or the scanners.
-                return _redact(resp.json(), secrets)
+                data = _drop_fields(resp.json(), set(tool_cfg.redact_fields))
+                return _redact(data, secrets)
         except httpx.TimeoutException as e:
             raise _UpstreamTimeout(_redact(str(e), secrets)) from None
         except httpx.HTTPError as e:
@@ -620,6 +621,17 @@ def _interpolate_endpoint(endpoint: str, params: dict[str, Any]) -> tuple[str, d
 
 
 REDACTED = "[REDACTED]"
+
+
+def _drop_fields(value: Any, names: set[str]) -> Any:
+    """Remove every dict key in *names*, at any depth (redact_fields)."""
+    if not names:
+        return value
+    if isinstance(value, dict):
+        return {k: _drop_fields(v, names) for k, v in value.items() if k not in names}
+    if isinstance(value, list):
+        return [_drop_fields(v, names) for v in value]
+    return value
 
 
 def _redact(value: Any, secrets: list[str]) -> Any:

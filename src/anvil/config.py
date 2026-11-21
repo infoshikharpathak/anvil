@@ -43,6 +43,15 @@ def validate_config(config: AnvilConfig) -> None:
     grants = GrantTable(config.grants)
     all_agents = {a for p in config.policies.values() for a in p.agents}
 
+    # A tool can't both require a response field and redact it.
+    for tool_name, tool in config.tools.items():
+        required = set(tool.response_schema.required_fields) if tool.response_schema else set()
+        for field in tool.redact_fields:
+            if field in required:
+                errors.append(
+                    f"tool '{tool_name}': redact_fields '{field}' is also a required response field"
+                )
+
     client_owner: dict[str, str] = {}
     for app_name, app in config.apps.items():
         for client_id, digest in app.api_keys.items():
