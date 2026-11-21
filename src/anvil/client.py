@@ -28,6 +28,7 @@ from .models import (
     new_session_id,
     now_ms,
 )
+from .namespaces import app_of, canonical
 from .policy import PolicyEngine
 from .registry_client import fetch_policy_bundle
 from .trace import TraceBuffer
@@ -144,8 +145,17 @@ class Anvil:
         timeout: float = 10.0,
         **kwargs: Any,
     ) -> None:
-        self._extra_tools[name] = ToolConfig(
-            name=name, endpoint=endpoint, method=method, trust=trust, timeout=timeout, **kwargs
+        """Register a tool at runtime. `name` may be "app.tool"; a bare name
+        belongs to the default app."""
+        tool_id = canonical(name)
+        self._extra_tools[tool_id] = ToolConfig(
+            name=tool_id,
+            app=app_of(tool_id),
+            endpoint=endpoint,
+            method=method,
+            trust=trust,
+            timeout=timeout,
+            **kwargs,
         )
 
     def tool(self, name: str, endpoint: str, method: str = "POST", **kwargs: Any) -> Callable:
@@ -165,6 +175,7 @@ class Anvil:
         return decorator
 
     def _resolve_tool(self, tool_name: str) -> ToolConfig:
+        tool_name = canonical(tool_name)
         cfg = self._extra_tools.get(tool_name) or self.config.tools.get(tool_name)
         if cfg is None:
             raise AnvilError(f"Tool '{tool_name}' is not registered.")
@@ -189,6 +200,7 @@ class Anvil:
         with the session trace, and included in audit log lines.
         """
         tool_cfg = self._resolve_tool(tool_name)
+        tool_name = tool_cfg.name  # canonical "app.tool" ID from here on
 
         # --- Request path -------------------------------------------------
         decision = self.policy_engine.check_request(self.session_id, agent_id, tool_name, params)

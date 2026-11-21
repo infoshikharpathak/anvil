@@ -11,13 +11,14 @@ import datetime
 import time
 from typing import Any
 
-from anvil.models import AnvilConfig, PolicyConfig, ToolConfig
+from anvil.models import AnvilConfig, AppConfig, PolicyConfig, ToolConfig
 
 from .models import OrphanSession, PolicyCheckout, StoredTrace
 
 
 class RegistryStorage:
     def __init__(self, config: AnvilConfig, session_ttl: int = 3600) -> None:
+        self.apps: dict[str, AppConfig] = dict(config.apps)
         self.tools: dict[str, ToolConfig] = dict(config.tools)
         self.policies: dict[str, PolicyConfig] = dict(config.policies)
         self.settings = config.settings
@@ -34,7 +35,9 @@ class RegistryStorage:
         policy = self.policies.get(policy_name)
         if policy is None:
             return None
-        return AnvilConfig(tools=self.tools, policies={policy_name: policy}, settings=self.settings)
+        return AnvilConfig(
+            apps=self.apps, tools=self.tools, policies={policy_name: policy}, settings=self.settings
+        )
 
     def list_policies(self) -> dict[str, PolicyConfig]:
         return self.policies

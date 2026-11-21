@@ -15,6 +15,7 @@ def _validate_against_registry(storage, policy_name: str, policy: PolicyConfig) 
     references, cycles, etc.) against the registry's current tool set, so a
     policy created/edited through the API or UI can't skip them."""
     candidate = AnvilConfig(
+        apps=storage.apps,
         tools=storage.list_tools(),
         policies={policy_name: policy},
         settings=storage.settings,

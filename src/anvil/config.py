@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 
 from .models import AnvilConfig
 
@@ -20,7 +21,10 @@ def load_config(path: str | Path) -> AnvilConfig:
 
 
 def load_config_dict(raw: dict[str, Any]) -> AnvilConfig:
-    config = AnvilConfig.model_validate(raw)
+    try:
+        config = AnvilConfig.model_validate(raw)
+    except ValidationError as e:
+        raise ConfigError(f"Invalid anvil config:\n{e}") from e
     validate_config(config)
     return config
 

@@ -7,7 +7,9 @@ import uuid
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from .namespaces import DEFAULT_APP, qualify, split_id
 
 
 class ViolationType(str, Enum):
@@ -77,8 +79,13 @@ class ResponseSchema(BaseModel):
 
 
 class ToolConfig(BaseModel):
-    name: str = ""  # filled in by loader from the mapping key
-    endpoint: str
+    name: str = ""  # canonical "app.tool" ID, filled in from the mapping key
+    app: str = DEFAULT_APP
+    # Exactly one of endpoint (full URL) or path (joined to the app's
+    # base_url at load time) must be set. After loading, endpoint is always
+    # the resolved URL and path is cleared.
+    endpoint: str | None = None
+    path: str | None = None
     method: HttpMethod = "POST"
     description: str = ""
     trust: Trust = "untrusted"
@@ -86,6 +93,24 @@ class ToolConfig(BaseModel):
     injection_scanning: bool = True
     parameters: dict[str, Any] | None = None
     response_schema: ResponseSchema | None = None
+
+
+class AppAuth(BaseModel):
+    """How Anvil authenticates to an app's tools. The secret itself never
+    goes in config: only the name of the env var that holds it."""
+
+    header: str
+    secret_env: str
+    prefix: str = ""  # e.g. "Bearer "
+
+
+class AppConfig(BaseModel):
+    name: str = ""  # filled in from the mapping key
+    base_url: str | None = None
+    auth: AppAuth | None = None
+    # Tools declared under the app. Moved into AnvilConfig.tools (keyed by
+    # canonical "app.tool" ID) at load time, so this is empty afterwards.
+    tools: dict[str, ToolConfig] = Field(default_factory=dict)
 
 
 class SequenceRule(BaseModel):
@@ -120,16 +145,67 @@ class Settings(BaseModel):
 
 
 class AnvilConfig(BaseModel):
+    apps: dict[str, AppConfig] = Field(default_factory=dict)
     tools: dict[str, ToolConfig] = Field(default_factory=dict)
     policies: dict[str, PolicyConfig] = Field(default_factory=dict)
     settings: Settings = Field(default_factory=Settings)
 
-    @field_validator("tools")
-    @classmethod
-    def _stamp_names(cls, tools: dict[str, ToolConfig]) -> dict[str, ToolConfig]:
-        for name, cfg in tools.items():
-            cfg.name = name
-        return tools
+    @model_validator(mode="after")
+    def _flatten_apps(self) -> "AnvilConfig":
+        """Give every tool a canonical "app.tool" key and a resolved endpoint.
+
+        Top-level tools keep working as before: a bare key is the default
+        app. Re-validating an already-flattened config is a no-op, which
+        matters because the registry round-trips configs through JSON."""
+        errors: list[str] = []
+        for app_name, app in self.apps.items():
+            app.name = app_name
+            if "." in app_name:
+                errors.append(f"app name '{app_name}' must not contain '.'")
+
+        flat: dict[str, ToolConfig] = {}
+
+        def add(key: str, cfg: ToolConfig) -> None:
+            if key in flat:
+                errors.append(f"tool '{key}' is declared more than once")
+            cfg.name = key
+            flat[key] = cfg
+
+        for key, cfg in self.tools.items():
+            app_name, short = split_id(key)
+            if "." in key and cfg.app not in (DEFAULT_APP, app_name):
+                errors.append(f"tool '{key}' has app '{cfg.app}' but its key says '{app_name}'")
+            cfg.app = app_name
+            add(qualify(app_name, short), cfg)
+
+        for app_name, app in self.apps.items():
+            for short, cfg in app.tools.items():
+                if "." in short:
+                    errors.append(f"tool '{short}' under app '{app_name}' must not contain '.'")
+                cfg.app = app_name
+                add(qualify(app_name, short), cfg)
+            app.tools = {}
+
+        for key, cfg in flat.items():
+            app = self.apps.get(cfg.app)
+            if cfg.app != DEFAULT_APP and app is None:
+                errors.append(f"tool '{key}' belongs to undeclared app '{cfg.app}'")
+                continue
+            if cfg.path is not None:
+                if cfg.endpoint is not None:
+                    errors.append(f"tool '{key}' sets both endpoint and path; use one")
+                elif app is None or not app.base_url:
+                    errors.append(f"tool '{key}' uses path but app '{cfg.app}' has no base_url")
+                else:
+                    cfg.endpoint = app.base_url.rstrip("/") + "/" + cfg.path.lstrip("/")
+                    cfg.path = None
+            elif cfg.endpoint is None:
+                errors.append(f"tool '{key}' needs an endpoint or a path")
+
+        if errors:
+            raise ValueError("; ".join(errors))
+        self.tools = flat
+        return self
 
 
 # --------------------------------------------------------------------------
