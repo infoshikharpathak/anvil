@@ -22,6 +22,7 @@ class ViolationType(str, Enum):
     UPSTREAM_ERROR = "upstream_error"
     UPSTREAM_TIMEOUT = "upstream_timeout"
     DISALLOWED_DELEGATION = "disallowed_delegation"
+    CROSS_APP_DENIED = "cross_app_denied"
     INJECTION_DETECTED_AGENT_INPUT = "injection_detected_agent_input"
     INJECTION_DETECTED_AGENT_OUTPUT = "injection_detected_agent_output"
     INJECTION_DETECTED_HANDOFF = "injection_detected_handoff"

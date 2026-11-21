@@ -219,6 +219,7 @@ class Anvil:
             # enforced. Sequence violations respect the agent's strictness.
             hard_block = decision.correction.violation in (
                 ViolationType.UNKNOWN_AGENT,
+                ViolationType.CROSS_APP_DENIED,
                 ViolationType.DISALLOWED_TOOL,
             )
             if hard_block or decision.enforce:

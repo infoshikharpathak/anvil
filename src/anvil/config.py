@@ -63,6 +63,11 @@ def validate_config(config: AnvilConfig) -> None:
                     errors.append(
                         f"{ctx}: allowed_delegations references agent '{target}' not in this policy"
                     )
+                elif app_of(target) != agent_app:
+                    errors.append(
+                        f"{ctx}: allowed_delegations references '{target}' from app "
+                        f"'{app_of(target)}' without a grant"
+                    )
 
             # trust_overrides must reference tools in allowed_tools
             for t in agent.trust_overrides:

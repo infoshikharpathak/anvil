@@ -66,7 +66,16 @@ class PolicyEngine:
         if agent is None:
             return _unknown_agent(agent_id)
 
-        # 2. disallowed tool -> hard block, always enforced regardless of strictness
+        # 2. cross-app tool without a grant -> hard block, ignores strictness
+        agent_app, tool_app = app_of(agent_id), app_of(tool_name)
+        if tool_app != agent_app and not self.tool_granted(tool_name, agent_app):
+            return _cross_app_denied(
+                f"Agent '{agent_id}' (app '{agent_app}') may not call '{tool_name}' "
+                f"(app '{tool_app}'): no grant gives app '{agent_app}' access to it.",
+                self.call_log.history_names(session_id, agent_id),
+            )
+
+        # 3. disallowed tool -> hard block, always enforced regardless of strictness
         if tool_name not in agent.allowed_tools:
             return PolicyDecision(
                 allowed=False,
@@ -81,7 +90,7 @@ class PolicyEngine:
                 ),
             )
 
-        # 3. sequence / prerequisite checks
+        # 4. sequence / prerequisite checks
         missing: list[str] = []
         for rule in agent.sequences:
             if rule.before != tool_name:
@@ -122,6 +131,13 @@ class PolicyEngine:
             return _unknown_agent(from_agent)
         if self.agent_policy(to_agent) is None:
             return _unknown_agent(to_agent)
+        from_app, to_app = app_of(from_agent), app_of(to_agent)
+        if from_app != to_app and not self.agent_granted(to_agent, from_app):
+            return _cross_app_denied(
+                f"Agent '{from_agent}' (app '{from_app}') may not hand off to '{to_agent}' "
+                f"(app '{to_app}'): no grant gives app '{from_app}' access to it.",
+                self.call_log.history_names(session_id, from_agent),
+            )
         if to_agent not in source.allowed_delegations:
             return PolicyDecision(
                 allowed=False,
@@ -136,6 +152,14 @@ class PolicyEngine:
                 ),
             )
         return PolicyDecision(allowed=True)
+
+    def tool_granted(self, tool_id: str, app: str) -> bool:
+        """Whether a grant lets `app` use another app's tool. No grants yet."""
+        return False
+
+    def agent_granted(self, agent_id: str, app: str) -> bool:
+        """Whether a grant lets `app` delegate to another app's agent."""
+        return False
 
     def _match_field_names(self, agent: AgentPolicy, tool_name: str) -> str:
         fields: set[str] = set()
@@ -163,5 +187,17 @@ def _unknown_agent(agent_id: str) -> PolicyDecision:
             message=f"Agent '{agent_id}' is not defined in the active policy.",
             required_actions=[],
             call_history=[],
+        ),
+    )
+
+
+def _cross_app_denied(message: str, history: list[str]) -> PolicyDecision:
+    return PolicyDecision(
+        allowed=False,
+        correction=CorrectionInfo(
+            violation=ViolationType.CROSS_APP_DENIED,
+            message=message,
+            required_actions=[],
+            call_history=history,
         ),
     )
