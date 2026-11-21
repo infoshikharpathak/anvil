@@ -177,15 +177,62 @@ def test_registry_bundle_is_scoped_and_has_no_key_digests(registry):
     assert registry.get("/checkouts", headers=NOTIFY).json() == []
 
 
-def test_registry_policy_writes_are_scoped(registry):
+ADMIN_KEY = "adm_test_5f0c2b7e9a"
+ADMIN = {"Authorization": f"Bearer {ADMIN_KEY}"}
+
+
+@pytest.fixture
+def registry_with_admin():
+    registry_app.state.storage = RegistryStorage(
+        load_config_dict(_raw()), admin_key_digest=hash_api_key(ADMIN_KEY)
+    )
+    return TestClient(registry_app)
+
+
+def test_app_keys_are_read_only_for_policies(registry_with_admin):
+    c = registry_with_admin
+    own = {"agents": {"ironclad.banking_agent": {"allowed_tools": ["get_accounts"]}}}
+    attempts = [
+        c.post("/policies", params={"name": "new-one"}, json=own, headers=IRON),
+        c.put("/policies/ironclad-banking", json=own, headers=IRON),  # its own policy
+        c.delete("/policies/ironclad-banking", headers=IRON),
+        c.put("/policies/notify-ops", json=own, headers=IRON),  # someone else's
+    ]
+    for resp in attempts:
+        assert resp.status_code == 403, resp.text
+        assert "read-only" in resp.json()["detail"] and "admin" in resp.json()["detail"]
+    # nothing changed, and reads still work, scoped to the app
+    listed = c.get("/policies", headers=IRON)
+    assert listed.status_code == 200 and set(listed.json()) == {"ironclad-banking"}
+    assert c.get("/policies/ironclad-banking", headers=IRON).status_code == 200
+    assert "new-one" not in c.get("/policies", headers=ADMIN).json()
+
+
+def test_admin_can_create_update_delete_any_policy(registry_with_admin):
+    c = registry_with_admin
     mine = {"agents": {"ironclad.helper": {"allowed_tools": ["get_accounts"]}}}
-    theirs = {"agents": {"notify.helper": {"allowed_tools": ["send_email"]}}}
-    assert registry.post("/policies", params={"name": "n1"}, json=mine, headers=IRON).status_code == 200
-    assert registry.post("/policies", params={"name": "n2"}, json=theirs, headers=IRON).status_code == 403
-    assert registry.put("/policies/notify-ops", json=mine, headers=IRON).status_code == 404
-    assert registry.put("/policies/ironclad-banking", json=theirs, headers=IRON).status_code == 403
-    assert registry.delete("/policies/notify-ops", headers=IRON).status_code == 404
-    assert registry.delete("/policies/n1", headers=IRON).status_code == 200
+    assert c.post("/policies", params={"name": "n1"}, json=mine, headers=ADMIN).status_code == 200
+    edited = {"description": "edited", "agents": {"notify.dispatcher": {"allowed_tools": ["send_email"]}}}
+    assert c.put("/policies/notify-ops", json=edited, headers=ADMIN).status_code == 200
+    assert c.get("/policies", headers=ADMIN).json()["notify-ops"]["description"] == "edited"
+    assert c.delete("/policies/n1", headers=ADMIN).status_code == 200
+    assert c.delete("/policies/legacy", headers=ADMIN).status_code == 200
+    assert set(c.get("/policies", headers=ADMIN).json()) == {"ironclad-banking", "notify-ops"}
+
+
+def test_policy_writes_without_credentials_are_401(registry_with_admin):
+    c = registry_with_admin
+    assert c.post("/policies", params={"name": "x"}, json={"agents": {}}).status_code == 401
+    assert c.delete("/policies/legacy", headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
+def test_open_mode_policy_writes_unchanged():
+    registry_app.state.storage = RegistryStorage(load_config_dict(_raw(with_keys=False)))
+    c = TestClient(registry_app)
+    body = {"agents": {"notify.helper": {"allowed_tools": ["send_email"]}}}
+    assert c.post("/policies", params={"name": "open"}, json=body).status_code == 200
+    assert c.put("/policies/open", json=body).status_code == 200
+    assert c.delete("/policies/open").status_code == 200
 
 
 def test_registry_traces_are_scoped(registry):

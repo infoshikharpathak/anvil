@@ -31,11 +31,17 @@ def _validate_against_registry(storage, policy_name: str, policy: PolicyConfig) 
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
-def _require_owned(storage, app: str | None, policy: PolicyConfig, policy_name: str) -> None:
-    if not storage.owns(app, policy):
+def require_admin_write(app: str | None = Depends(caller_app)) -> None:
+    """Policy writes are admin-only once keys exist. caller_app has already
+    rejected bad credentials (401) and returns None for the admin and in
+    open mode, so any app name here means an app key: read-only."""
+    if app is not None:
         raise HTTPException(
             status_code=403,
-            detail=f"Policy '{policy_name}' must contain only agents of app '{app}'",
+            detail=(
+                f"App keys are read-only for policies (caller app '{app}'). "
+                f"Policy changes need the admin key."
+            ),
         )
 
 
@@ -73,12 +79,11 @@ def get_policy(
 
 @router.post("/policies")
 def create_policy(
-    name: str, policy: PolicyConfig, request: Request, app: str | None = Depends(caller_app)
+    name: str, policy: PolicyConfig, request: Request, _: None = Depends(require_admin_write)
 ) -> dict:
     storage = request.app.state.storage
     if name in storage.list_policies():
         raise HTTPException(status_code=409, detail=f"Policy '{name}' already exists")
-    _require_owned(storage, app, policy, name)
     _validate_against_registry(storage, name, policy)
     storage.upsert_policy(name, policy)
     return {"created": name}
@@ -86,22 +91,18 @@ def create_policy(
 
 @router.put("/policies/{policy_name}")
 def update_policy(
-    policy_name: str, policy: PolicyConfig, request: Request, app: str | None = Depends(caller_app)
+    policy_name: str, policy: PolicyConfig, request: Request, _: None = Depends(require_admin_write)
 ) -> dict:
     storage = request.app.state.storage
-    existing = storage.list_policies().get(policy_name)
-    if existing is not None and not storage.owns(app, existing):
-        raise HTTPException(status_code=404, detail=f"Policy '{policy_name}' not found")
-    _require_owned(storage, app, policy, policy_name)
     _validate_against_registry(storage, policy_name, policy)
     storage.upsert_policy(policy_name, policy)
     return {"updated": policy_name}
 
 
 @router.delete("/policies/{policy_name}")
-def delete_policy(policy_name: str, request: Request, app: str | None = Depends(caller_app)) -> dict:
+def delete_policy(policy_name: str, request: Request, _: None = Depends(require_admin_write)) -> dict:
     storage = request.app.state.storage
-    if policy_name not in storage.list_policies(app):
+    if policy_name not in storage.list_policies():
         raise HTTPException(status_code=404, detail=f"Policy '{policy_name}' not found")
     active = [c for c in storage.list_checkouts() if c["policy_name"] == policy_name and c["status"] == "active"]
     if active:

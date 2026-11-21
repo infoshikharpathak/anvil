@@ -218,7 +218,7 @@ The registry stores only SHA-256 digests (`python -c "import hashlib,sys; print(
 - **Tools:** the app's own tools plus tools granted to it.
 - **Traces and checkouts:** only the app's own.
 
-Policy writes must also stay inside the caller's app. With no keys configured, the registry is open, as before.
+**App keys are read-only for policies.** `POST /policies`, `PUT /policies/{name}` and `DELETE /policies/{name}` need the admin: either `Authorization: Bearer <admin key>`, or the UI session cookie with `X-Anvil-UI`. An app key gets a 403 on those routes, even for its own app's policies. With no keys configured, the registry is open, as before.
 
 For frameworks that need tool *definitions* up front, pull them from the registry instead of hand-writing them:
 
@@ -254,7 +254,7 @@ The admin sees every app. The UI's fetch helper sends the session cookie plus an
 
 ## Security Model
 
-**Apps are the trust boundary.** A library instance bound with `app=` can't act as another app's agent. A registry caller with an app API key can only read and write that app's policies, tools and traces. Within one app, Anvil still trusts the calling code to pass the right `agent_id`: any code holding an app's instance or key can claim to be any of that app's agents. Anvil guards against agent error, misconfiguration and one app overreaching into another. It does not guard against a compromised app process.
+**Apps are the trust boundary.** A library instance bound with `app=` can't act as another app's agent. A registry caller with an app API key can only read that app's policies and tools, and only read and post that app's traces. Changing policies needs the admin key. Within one app, Anvil still trusts the calling code to pass the right `agent_id`: any code holding an app's instance or key can claim to be any of that app's agents. Anvil guards against agent error, misconfiguration and one app overreaching into another. It does not guard against a compromised app process.
 
 Known gaps:
 - With no `api_keys` configured, the registry API and UI are fully open (the pre-apps behavior).
