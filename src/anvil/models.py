@@ -137,6 +137,7 @@ class RecordedCall(BaseModel):
     violation: ViolationType | None = None
     correction_message: str | None = None
     latency_ms: float | None = None
+    trace_id: str | None = None
     timestamp: str = Field(default_factory=lambda: _iso_now())
 
 

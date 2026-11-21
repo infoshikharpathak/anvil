@@ -156,8 +156,8 @@ class Anvil:
 
         def decorator(fn: Callable) -> Callable:
             @functools.wraps(fn)
-            async def wrapper(agent_id: str, **params: Any) -> ToolResponse:
-                return await self.execute(agent_id=agent_id, tool_name=name, params=params)
+            async def wrapper(agent_id: str, *, trace_id: str | None = None, **params: Any) -> ToolResponse:
+                return await self.execute(agent_id=agent_id, tool_name=name, params=params, trace_id=trace_id)
 
             return wrapper
 
@@ -173,7 +173,20 @@ class Anvil:
     # Core execution
     # ------------------------------------------------------------------
 
-    async def execute(self, agent_id: str, tool_name: str, params: dict[str, Any]) -> ToolResponse:
+    async def execute(
+        self,
+        agent_id: str,
+        tool_name: str,
+        params: dict[str, Any],
+        *,
+        trace_id: str | None = None,
+    ) -> ToolResponse:
+        """Run one tool call through policy, the real tool, and response checks.
+
+        `trace_id` is an optional caller-supplied correlation id (e.g. from an
+        orchestrator's request trace). It is stored on the recorded call, sent
+        with the session trace, and included in audit log lines.
+        """
         tool_cfg = self._resolve_tool(tool_name)
 
         # --- Request path -------------------------------------------------
@@ -188,7 +201,7 @@ class Anvil:
                 ViolationType.DISALLOWED_TOOL,
             )
             if hard_block or decision.enforce:
-                self._record(agent_id, tool_name, params, CallResult.BLOCKED, decision.correction)
+                self._record(agent_id, tool_name, params, CallResult.BLOCKED, decision.correction, trace_id=trace_id)
                 return ToolResponse(success=False, data=None, tool_executed=False, correction=decision.correction)
             # loose strictness: log and fall through to execute anyway
             log_call(
@@ -198,6 +211,7 @@ class Anvil:
                 result="allowed_with_warning",
                 violation=decision.correction.violation.value,
                 enforced=False,
+                trace_id=trace_id,
             )
 
         # Request-path injection scan (on the outgoing params)
@@ -214,7 +228,7 @@ class Anvil:
                     required_actions=[],
                     call_history=self.call_log.history_names(self.session_id, agent_id),
                 )
-                self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction)
+                self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction, trace_id=trace_id)
                 return ToolResponse(success=False, data=None, tool_executed=False, correction=correction)
 
         # --- Forward to the real tool --------------------------------------
@@ -229,7 +243,7 @@ class Anvil:
                 required_actions=[],
                 call_history=self.call_log.history_names(self.session_id, agent_id),
             )
-            self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction)
+            self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction, trace_id=trace_id)
             return ToolResponse(success=False, data=None, tool_executed=False, correction=correction)
         except _UpstreamError as e:
             correction = CorrectionInfo(
@@ -238,7 +252,7 @@ class Anvil:
                 required_actions=[],
                 call_history=self.call_log.history_names(self.session_id, agent_id),
             )
-            self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction)
+            self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction, trace_id=trace_id)
             return ToolResponse(success=False, data=None, tool_executed=False, correction=correction)
 
         latency_ms = now_ms() - start
@@ -260,7 +274,8 @@ class Anvil:
                         call_history=self.call_log.history_names(self.session_id, agent_id),
                     )
                     self._record(
-                        agent_id, tool_name, params, CallResult.RESPONSE_WITHHELD, correction, latency_ms
+                        agent_id, tool_name, params, CallResult.RESPONSE_WITHHELD, correction, latency_ms,
+                        trace_id=trace_id,
                     )
                     return ToolResponse(success=False, data=None, tool_executed=True, correction=correction)
 
@@ -277,7 +292,8 @@ class Anvil:
                 )
                 if strictness == "strict":
                     self._record(
-                        agent_id, tool_name, params, CallResult.RESPONSE_WITHHELD, correction, latency_ms
+                        agent_id, tool_name, params, CallResult.RESPONSE_WITHHELD, correction, latency_ms,
+                        trace_id=trace_id,
                     )
                     return ToolResponse(success=False, data=None, tool_executed=True, correction=correction)
                 # loose: log warning, pass response through anyway
@@ -288,10 +304,11 @@ class Anvil:
                     result="schema_violation_allowed",
                     violation=ViolationType.SCHEMA_VIOLATION.value,
                     enforced=False,
+                    trace_id=trace_id,
                 )
 
         # --- Success ---------------------------------------------------------
-        self._record(agent_id, tool_name, params, CallResult.SUCCESS, None, latency_ms)
+        self._record(agent_id, tool_name, params, CallResult.SUCCESS, None, latency_ms, trace_id=trace_id)
         return ToolResponse(success=True, data=raw_data, tool_executed=True, correction=None)
 
     async def _call_upstream(self, tool_cfg: ToolConfig, params: dict[str, Any]) -> dict[str, Any]:
@@ -326,6 +343,7 @@ class Anvil:
         result: CallResult,
         correction: CorrectionInfo | None,
         latency_ms: float | None = None,
+        trace_id: str | None = None,
     ) -> None:
         call = RecordedCall(
             tool=tool_name,
@@ -335,6 +353,7 @@ class Anvil:
             violation=correction.violation if correction else None,
             correction_message=correction.message if correction else None,
             latency_ms=latency_ms,
+            trace_id=trace_id,
         )
         self.call_log.record(self.session_id, call)
         log_call(
@@ -343,6 +362,7 @@ class Anvil:
             tool_name=tool_name,
             result=result.value,
             violation=correction.violation.value if correction else None,
+            trace_id=trace_id,
         )
 
     # ------------------------------------------------------------------

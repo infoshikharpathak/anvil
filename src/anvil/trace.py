@@ -77,6 +77,8 @@ def _call_to_dict(call: RecordedCall) -> dict[str, Any]:
         d["latency_ms"] = call.latency_ms
     if call.violation is not None:
         d["violation"] = call.violation.value
+    if call.trace_id is not None:
+        d["trace_id"] = call.trace_id
     if call.correction_message is not None:
         d["correction_message"] = call.correction_message
     return d

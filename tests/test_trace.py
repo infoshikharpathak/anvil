@@ -61,3 +61,32 @@ async def test_flush_with_no_registry_writes_fallback(tmp_path):
     sent = await buffer.flush(registry_url=None)
     assert sent is False
     assert (tmp_path / "s1.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_execute_trace_id_recorded_in_trace_payload():
+    from anvil.client import Anvil
+    from anvil.config import load_config_dict
+
+    config = load_config_dict(
+        {
+            "tools": {
+                "ping": {"endpoint": "http://x/ping", "trust": "trusted"},
+                "pong": {"endpoint": "http://x/pong", "trust": "trusted"},
+            },
+            "policies": {"p": {"agents": {"a": {"allowed_tools": ["ping"]}}}},
+        }
+    )
+    client = Anvil(config, "p", session_id="s1")
+
+    async def fake(tool_cfg, params):
+        return {"ok": True}
+
+    client._call_upstream = fake
+    await client.execute("a", "ping", {}, trace_id="req-123")   # success
+    await client.execute("a", "pong", {}, trace_id="req-456")   # blocked: disallowed
+    await client.execute("a", "ping", {})                        # no trace id
+
+    calls = client.trace.build_payload()["calls"]
+    assert [c.get("trace_id") for c in calls] == ["req-123", "req-456", None]
+    assert "trace_id" not in calls[2]

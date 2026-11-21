@@ -187,3 +187,20 @@ def test_interpolate_endpoint_leaves_unknown_placeholders():
     url, rest = _interpolate_endpoint("https://x/{missing}", {"a": 1})
     assert url == "https://x/{missing}"
     assert rest == {"a": 1}
+
+
+@pytest.mark.asyncio
+async def test_tool_decorator_forwards_trace_id():
+    anvil = make_anvil()
+    patch_upstream(anvil, {"ok": True})
+
+    @anvil.tool("echo", endpoint="http://x/echo", trust="trusted")
+    async def echo():
+        ...
+
+    anvil.config.policies["strict-payments"].agents["notification_agent"].allowed_tools.append("echo")
+    resp = await echo("notification_agent", trace_id="t-9", msg="hi")
+    assert resp.success
+    rec = anvil.call_log.calls_for(anvil.session_id, "notification_agent")[-1]
+    assert rec.trace_id == "t-9"
+    assert rec.params == {"msg": "hi"}

@@ -33,9 +33,12 @@ def log_call(
     result: str,
     violation: str | None = None,
     enforced: bool = True,
+    trace_id: str | None = None,
 ) -> None:
     logger = get_audit_logger()
     msg = f"session={session_id} agent={agent_id} tool={tool_name} result={result}"
+    if trace_id:
+        msg += f" trace_id={trace_id}"
     if violation:
         msg += f" violation={violation} enforced={enforced}"
     if result == "blocked" or (violation and not enforced):
