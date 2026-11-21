@@ -5,8 +5,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .call_log import CallLog
-from .models import AgentPolicy, CorrectionInfo, PolicyConfig, SequenceRule, ViolationType
+from .models import AgentPolicy, CorrectionInfo, Grant, PolicyConfig, SequenceRule, ViolationType
 from .namespaces import app_of, resolve
+
+
+class GrantTable:
+    def __init__(self, grants: list[Grant]) -> None:
+        self._tools = {(g.tool, a) for g in grants if g.tool for a in g.to_apps}
+        self._agents = {(g.agent, a) for g in grants if g.agent for a in g.to_apps}
+
+    def tool(self, tool_id: str, app: str) -> bool:
+        return (tool_id, app) in self._tools
+
+    def agent(self, agent_id: str, app: str) -> bool:
+        return (agent_id, app) in self._agents
 
 
 def resolve_agent_policy(agent_id: str, agent: AgentPolicy) -> AgentPolicy:
@@ -41,9 +53,12 @@ class PolicyDecision:
 
 
 class PolicyEngine:
-    def __init__(self, policy: PolicyConfig, call_log: CallLog) -> None:
+    def __init__(
+        self, policy: PolicyConfig, call_log: CallLog, grants: list[Grant] | None = None
+    ) -> None:
         self.policy = policy
         self.call_log = call_log
+        self.grants = GrantTable(grants or [])
 
     def agent_policy(self, agent_id: str) -> AgentPolicy | None:
         """Resolved policy for a canonical agent ID. Resolved per lookup
@@ -154,12 +169,12 @@ class PolicyEngine:
         return PolicyDecision(allowed=True)
 
     def tool_granted(self, tool_id: str, app: str) -> bool:
-        """Whether a grant lets `app` use another app's tool. No grants yet."""
-        return False
+        """Whether a grant lets `app` use another app's tool."""
+        return self.grants.tool(tool_id, app)
 
     def agent_granted(self, agent_id: str, app: str) -> bool:
         """Whether a grant lets `app` delegate to another app's agent."""
-        return False
+        return self.grants.agent(agent_id, app)
 
     def _match_field_names(self, agent: AgentPolicy, tool_name: str) -> str:
         fields: set[str] = set()

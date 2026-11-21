@@ -17,7 +17,10 @@ def _validate_against_registry(storage, policy_name: str, policy: PolicyConfig) 
     candidate = AnvilConfig(
         apps=storage.apps,
         tools=storage.list_tools(),
-        policies={policy_name: policy},
+        # All stored policies, with the candidate swapped in: grants may name
+        # agents from any policy.
+        policies={**storage.list_policies(), policy_name: policy},
+        grants=storage.grants,
         settings=storage.settings,
     )
     try:

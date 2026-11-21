@@ -20,6 +20,7 @@ class RegistryStorage:
     def __init__(self, config: AnvilConfig, session_ttl: int = 3600) -> None:
         self.apps: dict[str, AppConfig] = dict(config.apps)
         self.tools: dict[str, ToolConfig] = dict(config.tools)
+        self.grants = list(config.grants)
         self.policies: dict[str, PolicyConfig] = dict(config.policies)
         self.settings = config.settings
         self.session_ttl = session_ttl
@@ -36,7 +37,11 @@ class RegistryStorage:
         if policy is None:
             return None
         return AnvilConfig(
-            apps=self.apps, tools=self.tools, policies={policy_name: policy}, settings=self.settings
+            apps=self.apps,
+            tools=self.tools,
+            policies={policy_name: policy},
+            grants=self.grants,
+            settings=self.settings,
         )
 
     def list_policies(self) -> dict[str, PolicyConfig]:

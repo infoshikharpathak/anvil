@@ -114,6 +114,33 @@ class AppConfig(BaseModel):
     tools: dict[str, ToolConfig] = Field(default_factory=dict)
 
 
+class Grant(BaseModel):
+    """Lets other apps use one app's tool, or delegate to one app's agent.
+
+        grants:
+          - tool: notify.send_email
+            to_apps: [ironclad]
+          - agent: notify.dispatcher
+            to_apps: [ironclad]
+
+    Bare names refer to the default app.
+    """
+
+    tool: str | None = None
+    agent: str | None = None
+    to_apps: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "Grant":
+        if (self.tool is None) == (self.agent is None):
+            raise ValueError("a grant needs exactly one of 'tool' or 'agent'")
+        if self.tool is not None:
+            self.tool = canonical(self.tool)
+        if self.agent is not None:
+            self.agent = canonical(self.agent)
+        return self
+
+
 class SequenceRule(BaseModel):
     before: str
     requires: list[str]
@@ -161,6 +188,7 @@ class AnvilConfig(BaseModel):
     apps: dict[str, AppConfig] = Field(default_factory=dict)
     tools: dict[str, ToolConfig] = Field(default_factory=dict)
     policies: dict[str, PolicyConfig] = Field(default_factory=dict)
+    grants: list[Grant] = Field(default_factory=list)
     settings: Settings = Field(default_factory=Settings)
 
     @model_validator(mode="after")

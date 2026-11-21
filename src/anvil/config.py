@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from .models import AnvilConfig
 from .namespaces import DEFAULT_APP, app_of
-from .policy import resolve_agent_policy
+from .policy import GrantTable, resolve_agent_policy
 
 
 class ConfigError(Exception):
@@ -36,6 +36,20 @@ def validate_config(config: AnvilConfig) -> None:
     errors: list[str] = []
     tool_names = set(config.tools.keys())
     known_apps = set(config.apps) | {DEFAULT_APP}
+    grants = GrantTable(config.grants)
+    all_agents = {a for p in config.policies.values() for a in p.agents}
+
+    for i, grant in enumerate(config.grants):
+        ctx = f"grant #{i + 1}"
+        if grant.tool is not None and grant.tool not in tool_names:
+            errors.append(f"{ctx}: references unregistered tool '{grant.tool}'")
+        if grant.agent is not None and grant.agent not in all_agents:
+            errors.append(f"{ctx}: references agent '{grant.agent}' not in any policy")
+        if not grant.to_apps:
+            errors.append(f"{ctx}: to_apps is empty")
+        for app in grant.to_apps:
+            if app not in known_apps:
+                errors.append(f"{ctx}: to_apps references undeclared app '{app}'")
 
     for policy_name, policy in config.policies.items():
         for agent_id, authored in policy.agents.items():
@@ -51,7 +65,7 @@ def validate_config(config: AnvilConfig) -> None:
             for t in agent.allowed_tools:
                 if t not in tool_names:
                     errors.append(f"{ctx}: allowed_tools references unregistered tool '{t}'")
-                elif config.tools[t].app != agent_app:
+                elif config.tools[t].app != agent_app and not grants.tool(t, agent_app):
                     errors.append(
                         f"{ctx}: allowed_tools references '{t}' from app "
                         f"'{config.tools[t].app}' without a grant"
@@ -63,7 +77,7 @@ def validate_config(config: AnvilConfig) -> None:
                     errors.append(
                         f"{ctx}: allowed_delegations references agent '{target}' not in this policy"
                     )
-                elif app_of(target) != agent_app:
+                elif app_of(target) != agent_app and not grants.agent(target, agent_app):
                     errors.append(
                         f"{ctx}: allowed_delegations references '{target}' from app "
                         f"'{app_of(target)}' without a grant"

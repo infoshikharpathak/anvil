@@ -85,7 +85,9 @@ class Anvil:
         self.policy_name = policy_name
 
         self.call_log = CallLog(session_ttl=config.settings.session_ttl)
-        self.policy_engine = PolicyEngine(config.policies[policy_name], self.call_log)
+        self.policy_engine = PolicyEngine(
+            config.policies[policy_name], self.call_log, grants=config.grants
+        )
         self.trace = TraceBuffer(
             self.session_id,
             policy_name,
