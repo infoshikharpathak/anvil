@@ -9,6 +9,7 @@ exceptions never see the pipeline crash.
 from __future__ import annotations
 
 import functools
+import os
 from typing import Any, Callable
 
 import httpx
@@ -95,6 +96,8 @@ class Anvil:
             fallback_dir=config.settings.trace_fallback_dir,
         )
         self._extra_tools: dict[str, ToolConfig] = {}
+        # Test seam: an httpx transport for upstream calls (None = real network).
+        self._transport: httpx.AsyncBaseTransport | None = None
 
     # ------------------------------------------------------------------
     # Construction helpers
@@ -461,13 +464,29 @@ class Anvil:
             trace_id=trace_id,
         )
 
+    def _app_credentials(self, tool_cfg: ToolConfig) -> tuple[dict[str, str], list[str]]:
+        """Auth header for the tool's app, read from its env var at call time.
+        Returns (headers, secrets_to_redact). The secret is never stored on
+        the instance or logged."""
+        app = self.config.apps.get(tool_cfg.app)
+        if app is None or app.auth is None:
+            return {}, []
+        secret = os.environ.get(app.auth.secret_env)
+        if not secret:
+            raise _UpstreamError(
+                f"credentials for app '{tool_cfg.app}' are not configured "
+                f"(env var '{app.auth.secret_env}' is unset)"
+            )
+        return {app.auth.header: f"{app.auth.prefix}{secret}"}, [secret]
+
     async def _call_upstream(self, tool_cfg: ToolConfig, params: dict[str, Any]) -> dict[str, Any]:
         method = tool_cfg.method.upper()
+        headers, secrets = self._app_credentials(tool_cfg)
         # Interpolate {placeholder} tokens in the endpoint URL from params,
         # removing consumed keys so they aren't sent again as query/body args.
         url, remaining = _interpolate_endpoint(tool_cfg.endpoint, params)
         try:
-            async with httpx.AsyncClient(timeout=tool_cfg.timeout) as client:
+            async with httpx.AsyncClient(timeout=tool_cfg.timeout, transport=self._transport) as client:
                 if method in ("GET", "DELETE"):
                     for k, v in remaining.items():
                         if isinstance(v, (dict, list)):
@@ -475,15 +494,19 @@ class Anvil:
                                 f"GET/DELETE tool '{tool_cfg.name}' received a nested "
                                 f"object for param '{k}'; only scalar query params are supported."
                             )
-                    resp = await client.request(method, url, params=remaining)
+                    resp = await client.request(method, url, params=remaining, headers=headers)
                 else:
-                    resp = await client.request(method, url, json=remaining)
+                    resp = await client.request(method, url, json=remaining, headers=headers)
                 resp.raise_for_status()
-                return resp.json()
+                # An upstream that echoes request headers must not hand the
+                # secret back to the agent, the trace, or the scanners.
+                return _redact(resp.json(), secrets)
         except httpx.TimeoutException as e:
-            raise _UpstreamTimeout(str(e)) from e
+            raise _UpstreamTimeout(_redact(str(e), secrets)) from None
         except httpx.HTTPError as e:
-            raise _UpstreamError(str(e)) from e
+            raise _UpstreamError(_redact(str(e), secrets)) from None
+        except ValueError as e:  # non-JSON body
+            raise _UpstreamError(_redact(f"invalid JSON response: {e}", secrets)) from None
 
     def _record(
         self,
@@ -546,6 +569,24 @@ def _interpolate_endpoint(endpoint: str, params: dict[str, Any]) -> tuple[str, d
     for key in used:
         remaining.pop(key, None)
     return url, remaining
+
+
+REDACTED = "[REDACTED]"
+
+
+def _redact(value: Any, secrets: list[str]) -> Any:
+    """Replace every occurrence of any secret inside strings, recursively."""
+    if not secrets:
+        return value
+    if isinstance(value, str):
+        for s in secrets:
+            value = value.replace(s, REDACTED)
+        return value
+    if isinstance(value, dict):
+        return {_redact(k, secrets): _redact(v, secrets) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact(v, secrets) for v in value]
+    return value
 
 
 class _UpstreamTimeout(Exception):
