@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .namespaces import DEFAULT_APP, qualify, split_id
+from .namespaces import DEFAULT_APP, canonical, qualify, split_id
 
 
 class ViolationType(str, Enum):
@@ -131,7 +131,19 @@ class AgentPolicy(BaseModel):
 
 class PolicyConfig(BaseModel):
     description: str = ""
+    # Keyed by agent ID: "app.agent", or a bare name for the default app.
     agents: dict[str, AgentPolicy] = Field(default_factory=dict)
+
+    @field_validator("agents")
+    @classmethod
+    def _canonical_agent_ids(cls, agents: dict[str, AgentPolicy]) -> dict[str, AgentPolicy]:
+        out: dict[str, AgentPolicy] = {}
+        for key, agent in agents.items():
+            agent_id = canonical(key)
+            if agent_id in out:
+                raise ValueError(f"agent '{agent_id}' is declared more than once")
+            out[agent_id] = agent
+        return out
 
 
 class Settings(BaseModel):

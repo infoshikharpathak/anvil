@@ -9,6 +9,8 @@ import yaml
 from pydantic import ValidationError
 
 from .models import AnvilConfig
+from .namespaces import DEFAULT_APP, app_of
+from .policy import resolve_agent_policy
 
 
 class ConfigError(Exception):
@@ -33,16 +35,27 @@ def validate_config(config: AnvilConfig) -> None:
     """Raise ConfigError on any structural inconsistency. Called at load time."""
     errors: list[str] = []
     tool_names = set(config.tools.keys())
+    known_apps = set(config.apps) | {DEFAULT_APP}
 
     for policy_name, policy in config.policies.items():
-        for agent_id, agent in policy.agents.items():
+        for agent_id, authored in policy.agents.items():
             ctx = f"policy '{policy_name}' agent '{agent_id}'"
+            agent_app = app_of(agent_id)
+            if agent_app not in known_apps:
+                errors.append(f"{ctx}: belongs to undeclared app '{agent_app}'")
+                continue
+            agent = resolve_agent_policy(agent_id, authored)
             allowed = set(agent.allowed_tools)
 
-            # allowed_tools must reference registered tools
+            # allowed_tools must reference registered tools in the agent's own app
             for t in agent.allowed_tools:
                 if t not in tool_names:
                     errors.append(f"{ctx}: allowed_tools references unregistered tool '{t}'")
+                elif config.tools[t].app != agent_app:
+                    errors.append(
+                        f"{ctx}: allowed_tools references '{t}' from app "
+                        f"'{config.tools[t].app}' without a grant"
+                    )
 
             # allowed_delegations must reference agents in the same policy
             for target in agent.allowed_delegations:

@@ -5,7 +5,30 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .call_log import CallLog
-from .models import AgentPolicy, CorrectionInfo, PolicyConfig, ViolationType
+from .models import AgentPolicy, CorrectionInfo, PolicyConfig, SequenceRule, ViolationType
+from .namespaces import app_of, resolve
+
+
+def resolve_agent_policy(agent_id: str, agent: AgentPolicy) -> AgentPolicy:
+    """Copy of `agent` with every tool/agent reference resolved to a
+    canonical ID relative to the agent's own app. Config is never rewritten
+    in place, so authored policies round-trip unchanged."""
+    app = app_of(agent_id)
+    return agent.model_copy(
+        update={
+            "allowed_tools": [resolve(t, app) for t in agent.allowed_tools],
+            "allowed_delegations": [resolve(a, app) for a in agent.allowed_delegations],
+            "trust_overrides": {resolve(t, app): v for t, v in agent.trust_overrides.items()},
+            "sequences": [
+                SequenceRule(
+                    before=resolve(r.before, app),
+                    requires=[resolve(q, app) for q in r.requires],
+                    match_fields=list(r.match_fields),
+                )
+                for r in agent.sequences
+            ],
+        }
+    )
 
 
 @dataclass
@@ -23,7 +46,10 @@ class PolicyEngine:
         self.call_log = call_log
 
     def agent_policy(self, agent_id: str) -> AgentPolicy | None:
-        return self.policy.agents.get(agent_id)
+        """Resolved policy for a canonical agent ID. Resolved per lookup
+        (cheap) so changes made to the policy after construction apply."""
+        agent = self.policy.agents.get(agent_id)
+        return resolve_agent_policy(agent_id, agent) if agent is not None else None
 
     def check_request(
         self,

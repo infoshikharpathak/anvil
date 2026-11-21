@@ -91,7 +91,7 @@ def test_bad_app_configs_rejected(mutate, message):
 @pytest.mark.asyncio
 async def test_execute_accepts_qualified_tool_id():
     raw = _apps_config(
-        policies={"p": {"agents": {"a": {"allowed_tools": ["ironclad.get_accounts"]}}}}
+        policies={"p": {"agents": {"ironclad.a": {"allowed_tools": ["get_accounts"]}}}}
     )
     client = Anvil(load_config_dict(raw), "p")
     seen = []
@@ -101,7 +101,7 @@ async def test_execute_accepts_qualified_tool_id():
         return {"accounts": []}
 
     client._call_upstream = fake
-    resp = await client.execute("a", "ironclad.get_accounts", {})
+    resp = await client.execute("ironclad.a", "ironclad.get_accounts", {})
     assert resp.success and seen == ["http://bank:8001/accounts"]
     assert client.trace.build_payload()["calls"][0]["tool"] == "ironclad.get_accounts"
 

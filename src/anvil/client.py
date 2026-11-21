@@ -28,7 +28,7 @@ from .models import (
     new_session_id,
     now_ms,
 )
-from .namespaces import app_of, canonical
+from .namespaces import DEFAULT_APP, app_of, canonical, resolve
 from .policy import PolicyEngine
 from .registry_client import fetch_policy_bundle
 from .trace import TraceBuffer
@@ -174,8 +174,15 @@ class Anvil:
 
         return decorator
 
-    def _resolve_tool(self, tool_name: str) -> ToolConfig:
-        tool_name = canonical(tool_name)
+    def _agent_id(self, agent_id: str) -> str:
+        """Canonical agent ID. A bare name belongs to the default app."""
+        return canonical(agent_id)
+
+    def _resolve_tool(self, tool_name: str, agent_id: str | None = None) -> ToolConfig:
+        """Look up a tool. A bare name resolves within the calling agent's
+        app, so an ironclad agent can say "get_accounts"."""
+        ctx_app = app_of(agent_id) if agent_id else DEFAULT_APP
+        tool_name = resolve(tool_name, ctx_app)
         cfg = self._extra_tools.get(tool_name) or self.config.tools.get(tool_name)
         if cfg is None:
             raise AnvilError(f"Tool '{tool_name}' is not registered.")
@@ -199,7 +206,8 @@ class Anvil:
         orchestrator's request trace). It is stored on the recorded call, sent
         with the session trace, and included in audit log lines.
         """
-        tool_cfg = self._resolve_tool(tool_name)
+        agent_id = self._agent_id(agent_id)
+        tool_cfg = self._resolve_tool(tool_name, agent_id)
         tool_name = tool_cfg.name  # canonical "app.tool" ID from here on
 
         # --- Request path -------------------------------------------------
@@ -333,6 +341,7 @@ class Anvil:
     ) -> AgentCheckResult:
         """Check content about to be given to an agent: the agent must be in
         the policy, and the content must pass the injection scan."""
+        agent_id = self._agent_id(agent_id)
         return await self._check_agent_content(
             agent_id, content, "agent_input", ViolationType.INJECTION_DETECTED_AGENT_INPUT,
             f"Input to agent '{agent_id}'", trace_id,
@@ -342,6 +351,7 @@ class Anvil:
         self, agent_id: str, content: Any, *, trace_id: str | None = None
     ) -> AgentCheckResult:
         """Check content an agent produced before it is used downstream."""
+        agent_id = self._agent_id(agent_id)
         return await self._check_agent_content(
             agent_id, content, "agent_output", ViolationType.INJECTION_DETECTED_AGENT_OUTPUT,
             f"Output from agent '{agent_id}'", trace_id,
@@ -357,7 +367,10 @@ class Anvil:
     ) -> AgentCheckResult:
         """Check a delegation from one agent to another. `to_agent` must be in
         `from_agent`'s allowed_delegations (enforced like allowed_tools). If a
-        payload is passed it is also injection-scanned."""
+        payload is passed it is also injection-scanned. A bare `to_agent`
+        resolves within `from_agent`'s app."""
+        from_agent = self._agent_id(from_agent)
+        to_agent = resolve(to_agent, app_of(from_agent))
         decision = self.policy_engine.check_handoff(self.session_id, from_agent, to_agent)
         if not decision.allowed:
             assert decision.correction is not None
