@@ -8,6 +8,7 @@ from .models import (
     ToolResponse,
     ViolationType,
 )
+from .validators import Classifier, InjectionResult
 
 __all__ = [
     "Anvil",
@@ -15,7 +16,9 @@ __all__ = [
     "ConfigError",
     "load_config",
     "AnvilConfig",
+    "Classifier",
     "CorrectionInfo",
+    "InjectionResult",
     "InjectionScannerConfig",
     "ToolConfig",
     "ToolResponse",

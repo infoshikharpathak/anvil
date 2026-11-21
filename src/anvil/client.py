@@ -30,7 +30,7 @@ from .models import (
 from .policy import PolicyEngine
 from .registry_client import fetch_policy_bundle
 from .trace import TraceBuffer
-from .validators import scan_for_injection, scan_for_injection_async, validate_schema
+from .validators import Classifier, scan_for_injection_async, validate_schema
 
 
 class AnvilError(Exception):
@@ -47,6 +47,7 @@ class Anvil:
         registry_url: str | None = None,
         session_id: str | None = None,
         client_id: str | None = None,
+        classifier: Classifier | None = None,
     ) -> None:
         """Two ways to construct:
 
@@ -56,6 +57,9 @@ class Anvil:
           from the registry synchronously (one blocking call, startup only).
           If the registry is unreachable, raises AnvilError immediately
           rather than starting with no policy.
+
+        `classifier` is an optional async ``(text) -> InjectionResult``
+        callable that replaces the built-in httpx LLM injection scanner.
         """
         policy_name = policy
         if policy_name is None:
@@ -64,6 +68,7 @@ class Anvil:
         self.session_id = session_id or new_session_id()
         self.registry_url = registry_url
         self.client_id = client_id
+        self.classifier = classifier
 
         if config is None:
             if registry_url is None:
@@ -97,9 +102,10 @@ class Anvil:
         path: str,
         policy: str,
         session_id: str | None = None,
+        classifier: Classifier | None = None,
     ) -> "Anvil":
         config = load_config(path)
-        return cls(config, policy, session_id=session_id)
+        return cls(config, policy, session_id=session_id, classifier=classifier)
 
     @classmethod
     async def from_registry(
@@ -108,13 +114,21 @@ class Anvil:
         policy: str,
         session_id: str | None = None,
         client_id: str | None = None,
+        classifier: Classifier | None = None,
     ) -> "Anvil":
         """Async variant of the registry-backed constructor, for callers
         already inside an event loop (avoids the sync client's blocking
         call)."""
         sid = session_id or new_session_id()
         config = await fetch_policy_bundle(registry_url, policy, sid, client_id)
-        return cls(config, policy, session_id=sid, registry_url=registry_url, client_id=client_id)
+        return cls(
+            config,
+            policy,
+            session_id=sid,
+            registry_url=registry_url,
+            client_id=client_id,
+            classifier=classifier,
+        )
 
     # ------------------------------------------------------------------
     # Tool registration
@@ -189,7 +203,7 @@ class Anvil:
         # Request-path injection scan (on the outgoing params)
         settings = self.config.settings
         if settings.injection_scanning and tool_cfg.injection_scanning:
-            req_scan = await scan_for_injection_async(params, settings)
+            req_scan = await scan_for_injection_async(params, settings, classifier=self.classifier)
             if req_scan.detected:
                 correction = CorrectionInfo(
                     violation=ViolationType.INJECTION_DETECTED_REQUEST,
@@ -232,7 +246,7 @@ class Anvil:
         # --- Response path (only for untrusted tools) -----------------------
         if trust == "untrusted":
             if settings.injection_scanning and tool_cfg.injection_scanning:
-                resp_scan = await scan_for_injection_async(raw_data, settings)
+                resp_scan = await scan_for_injection_async(raw_data, settings, classifier=self.classifier)
                 if resp_scan.detected:
                     correction = CorrectionInfo(
                         violation=ViolationType.INJECTION_DETECTED_RESPONSE,

@@ -19,7 +19,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 import httpx
 
@@ -81,6 +81,13 @@ class InjectionResult:
 class SchemaResult:
     valid: bool
     missing_fields: list[str] | None = None
+
+
+# A pluggable classifier: given the flattened payload text, return an
+# InjectionResult. When supplied to Anvil it replaces the built-in httpx
+# LLM scanner. Any exception or non-InjectionResult return falls back to the
+# regex scanner, so a broken classifier can never crash the pipeline.
+Classifier = Callable[[str], Awaitable[InjectionResult]]
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +206,7 @@ async def scan_for_injection_async(
     settings: "Settings",
     *,
     enabled: bool = True,
+    classifier: Classifier | None = None,
 ) -> InjectionResult:
     """Async injection scan dispatching to regex, LLM, or hybrid.
 
@@ -206,11 +214,25 @@ async def scan_for_injection_async(
     - ``"llm"``    — LLM only, regex fallback on failure
     - ``"hybrid"`` — regex first (fast reject), then LLM for a second
                      opinion on payloads that regex passes
+
+    If *classifier* is given it takes the place of the built-in httpx LLM
+    scanner (no API key needed). Because passing a classifier signals intent
+    to use it, the default ``"regex"`` mode is upgraded to ``"hybrid"``.
     """
     if not enabled:
         return InjectionResult(detected=False)
 
     mode = settings.injection_scan_mode
+
+    if classifier is not None:
+        if mode == "regex":
+            mode = "hybrid"
+        if mode == "hybrid":
+            regex_result = scan_for_injection(payload, enabled=enabled)
+            if regex_result.detected:
+                return regex_result
+        if mode in ("llm", "hybrid"):
+            return await _run_custom_classifier(classifier, payload)
 
     # --- regex (default) ---------------------------------------------------
     if mode == "regex":
@@ -258,6 +280,22 @@ async def scan_for_injection_async(
     # --- unknown mode — safe fallback --------------------------------------
     logger.warning("Unknown injection_scan_mode '%s', falling back to regex", mode)
     return scan_for_injection(payload, enabled=enabled)
+
+
+async def _run_custom_classifier(classifier: Classifier, payload: Any) -> InjectionResult:
+    text = _flatten_to_text(payload)
+    try:
+        result = await classifier(text)
+    except Exception as exc:  # noqa: BLE001 — a user classifier must never crash the pipeline
+        logger.warning("Custom injection classifier raised (%s), falling back to regex", exc)
+        return scan_for_injection(payload)
+    if not isinstance(result, InjectionResult):
+        logger.warning(
+            "Custom injection classifier returned %s, not InjectionResult; falling back to regex",
+            type(result).__name__,
+        )
+        return scan_for_injection(payload)
+    return result
 
 
 # ---------------------------------------------------------------------------
