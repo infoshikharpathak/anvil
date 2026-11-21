@@ -169,3 +169,21 @@ async def test_unknown_agent_hard_block():
     resp = await anvil.execute("ghost_agent", "send_notification", {"message": "hi"})
     assert resp.success is False
     assert resp.correction.violation == ViolationType.UNKNOWN_AGENT
+
+
+def test_interpolate_endpoint_consumes_placeholder_params():
+    from anvil.client import _interpolate_endpoint
+
+    url, rest = _interpolate_endpoint(
+        "https://api.example.com/orders/{order_id}/items", {"order_id": 42, "limit": 5}
+    )
+    assert url == "https://api.example.com/orders/42/items"
+    assert rest == {"limit": 5}
+
+
+def test_interpolate_endpoint_leaves_unknown_placeholders():
+    from anvil.client import _interpolate_endpoint
+
+    url, rest = _interpolate_endpoint("https://x/{missing}", {"a": 1})
+    assert url == "https://x/{missing}"
+    assert rest == {"a": 1}

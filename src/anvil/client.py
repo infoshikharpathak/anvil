@@ -282,18 +282,21 @@ class Anvil:
 
     async def _call_upstream(self, tool_cfg: ToolConfig, params: dict[str, Any]) -> dict[str, Any]:
         method = tool_cfg.method.upper()
+        # Interpolate {placeholder} tokens in the endpoint URL from params,
+        # removing consumed keys so they aren't sent again as query/body args.
+        url, remaining = _interpolate_endpoint(tool_cfg.endpoint, params)
         try:
             async with httpx.AsyncClient(timeout=tool_cfg.timeout) as client:
                 if method in ("GET", "DELETE"):
-                    for k, v in params.items():
+                    for k, v in remaining.items():
                         if isinstance(v, (dict, list)):
                             raise AnvilError(
                                 f"GET/DELETE tool '{tool_cfg.name}' received a nested "
                                 f"object for param '{k}'; only scalar query params are supported."
                             )
-                    resp = await client.request(method, tool_cfg.endpoint, params=params)
+                    resp = await client.request(method, url, params=remaining)
                 else:
-                    resp = await client.request(method, tool_cfg.endpoint, json=params)
+                    resp = await client.request(method, url, json=remaining)
                 resp.raise_for_status()
                 return resp.json()
         except httpx.TimeoutException as e:
@@ -336,6 +339,29 @@ class Anvil:
         """Flush the session trace to the registry. Returns True if the
         registry accepted it; False if it fell back to a local file."""
         return await self.trace.flush(self.registry_url)
+
+
+def _interpolate_endpoint(endpoint: str, params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Replace ``{key}`` placeholders in an endpoint URL with matching param
+    values.  Returns ``(resolved_url, remaining_params)`` — consumed keys are
+    removed from the params dict so they don't get sent again as query/body
+    arguments."""
+    import re
+
+    remaining = dict(params)
+    used: set[str] = set()
+
+    def _replace(m: re.Match) -> str:
+        key = m.group(1)
+        if key in remaining:
+            used.add(key)
+            return str(remaining[key])
+        return m.group(0)  # leave unresolved placeholders as-is
+
+    url = re.sub(r"\{(\w+)\}", _replace, endpoint)
+    for key in used:
+        remaining.pop(key, None)
+    return url, remaining
 
 
 class _UpstreamTimeout(Exception):
