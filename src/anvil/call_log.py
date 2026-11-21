@@ -46,7 +46,7 @@ class CallLog:
         """True if `tool_name` was executed (success or response_withheld — the
         side effect happened either way) with matching params for match_fields."""
         for call in self.calls_for(session_id, agent_id):
-            if call.tool != tool_name:
+            if call.kind != "tool" or call.tool != tool_name:
                 continue
             if call.result not in (CallResult.SUCCESS, CallResult.RESPONSE_WITHHELD):
                 continue
@@ -58,7 +58,7 @@ class CallLog:
         return [
             c.tool
             for c in self.calls_for(session_id, agent_id)
-            if c.result in (CallResult.SUCCESS, CallResult.RESPONSE_WITHHELD)
+            if c.kind == "tool" and c.result in (CallResult.SUCCESS, CallResult.RESPONSE_WITHHELD)
         ]
 
     def clear_session(self, session_id: str) -> list[RecordedCall]:

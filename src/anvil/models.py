@@ -19,6 +19,10 @@ class ViolationType(str, Enum):
     SCHEMA_VIOLATION = "schema_violation"
     UPSTREAM_ERROR = "upstream_error"
     UPSTREAM_TIMEOUT = "upstream_timeout"
+    DISALLOWED_DELEGATION = "disallowed_delegation"
+    INJECTION_DETECTED_AGENT_INPUT = "injection_detected_agent_input"
+    INJECTION_DETECTED_AGENT_OUTPUT = "injection_detected_agent_output"
+    INJECTION_DETECTED_HANDOFF = "injection_detected_handoff"
 
 
 class CorrectionInfo(BaseModel):
@@ -32,6 +36,14 @@ class ToolResponse(BaseModel):
     success: bool
     data: dict[str, Any] | None = None
     tool_executed: bool = False
+    correction: CorrectionInfo | None = None
+
+
+class AgentCheckResult(BaseModel):
+    """Result of check_agent_input / check_agent_output / check_handoff.
+    Like ToolResponse, a block is returned as data, never raised."""
+
+    allowed: bool
     correction: CorrectionInfo | None = None
 
 
@@ -84,6 +96,9 @@ class SequenceRule(BaseModel):
 
 class AgentPolicy(BaseModel):
     allowed_tools: list[str] = Field(default_factory=list)
+    # Agents this agent may hand work off to. Enforced like allowed_tools:
+    # a hard block regardless of strictness.
+    allowed_delegations: list[str] = Field(default_factory=list)
     sequences: list[SequenceRule] = Field(default_factory=list)
     strictness: Strictness = "strict"
     trust_overrides: dict[str, Trust] = Field(default_factory=dict)
@@ -127,10 +142,17 @@ class CallResult(str, Enum):
     RESPONSE_WITHHELD = "response_withheld"
 
 
+RecordKind = Literal["tool", "agent_input", "agent_output", "handoff"]
+
+
 class RecordedCall(BaseModel):
-    """One tool invocation as recorded in the per-session call log."""
+    """One tool invocation (or agent check) as recorded in the per-session
+    call log. Only kind == "tool" records count toward prerequisites and
+    call history; agent checks are kept for the trace."""
 
     tool: str
+    kind: RecordKind = "tool"
+    target_agent: str | None = None
     agent: str
     params: dict[str, Any] = Field(default_factory=dict)
     result: CallResult

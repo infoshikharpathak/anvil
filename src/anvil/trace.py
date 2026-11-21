@@ -73,6 +73,10 @@ def _call_to_dict(call: RecordedCall) -> dict[str, Any]:
         "result": call.result.value,
         "timestamp": call.timestamp,
     }
+    if call.kind != "tool":
+        d["kind"] = call.kind
+    if call.target_agent is not None:
+        d["target_agent"] = call.target_agent
     if call.latency_ms is not None:
         d["latency_ms"] = call.latency_ms
     if call.violation is not None:

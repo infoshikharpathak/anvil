@@ -38,15 +38,7 @@ class PolicyEngine:
 
         # 1. unknown agent -> hard block, always enforced
         if agent is None:
-            return PolicyDecision(
-                allowed=False,
-                correction=CorrectionInfo(
-                    violation=ViolationType.UNKNOWN_AGENT,
-                    message=f"Agent '{agent_id}' is not defined in the active policy.",
-                    required_actions=[],
-                    call_history=[],
-                ),
-            )
+            return _unknown_agent(agent_id)
 
         # 2. disallowed tool -> hard block, always enforced regardless of strictness
         if tool_name not in agent.allowed_tools:
@@ -90,6 +82,35 @@ class PolicyEngine:
 
         return PolicyDecision(allowed=True)
 
+    def check_agent_known(self, agent_id: str) -> PolicyDecision:
+        if self.agent_policy(agent_id) is None:
+            return _unknown_agent(agent_id)
+        return PolicyDecision(allowed=True)
+
+    def check_handoff(self, session_id: str, from_agent: str, to_agent: str) -> PolicyDecision:
+        """Delegation check, mirroring allowed_tools: both agents must exist
+        and `to_agent` must be in `from_agent`'s allowed_delegations. Always a
+        hard block — strictness does not apply."""
+        source = self.agent_policy(from_agent)
+        if source is None:
+            return _unknown_agent(from_agent)
+        if self.agent_policy(to_agent) is None:
+            return _unknown_agent(to_agent)
+        if to_agent not in source.allowed_delegations:
+            return PolicyDecision(
+                allowed=False,
+                correction=CorrectionInfo(
+                    violation=ViolationType.DISALLOWED_DELEGATION,
+                    message=(
+                        f"Agent '{from_agent}' is not permitted to hand off to '{to_agent}'. "
+                        f"Allowed delegations: {source.allowed_delegations}."
+                    ),
+                    required_actions=[],
+                    call_history=self.call_log.history_names(session_id, from_agent),
+                ),
+            )
+        return PolicyDecision(allowed=True)
+
     def _match_field_names(self, agent: AgentPolicy, tool_name: str) -> str:
         fields: set[str] = set()
         for rule in agent.sequences:
@@ -106,3 +127,15 @@ class PolicyEngine:
     def strictness_for(self, agent_id: str, default_strictness: str) -> str:
         agent = self.agent_policy(agent_id)
         return agent.strictness if agent else default_strictness
+
+
+def _unknown_agent(agent_id: str) -> PolicyDecision:
+    return PolicyDecision(
+        allowed=False,
+        correction=CorrectionInfo(
+            violation=ViolationType.UNKNOWN_AGENT,
+            message=f"Agent '{agent_id}' is not defined in the active policy.",
+            required_actions=[],
+            call_history=[],
+        ),
+    )

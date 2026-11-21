@@ -25,6 +25,7 @@ POLICY_SKELETON = {
     "agents": {
         "example_agent": {
             "allowed_tools": [],
+            "allowed_delegations": [],
             "sequences": [],
             "strictness": "strict",
             "trust_overrides": {},

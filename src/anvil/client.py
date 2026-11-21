@@ -17,6 +17,7 @@ from .audit import log_call
 from .call_log import CallLog
 from .config import load_config
 from .models import (
+    AgentCheckResult,
     AnvilConfig,
     CallResult,
     CorrectionInfo,
@@ -310,6 +311,127 @@ class Anvil:
         # --- Success ---------------------------------------------------------
         self._record(agent_id, tool_name, params, CallResult.SUCCESS, None, latency_ms, trace_id=trace_id)
         return ToolResponse(success=True, data=raw_data, tool_executed=True, correction=None)
+
+    # ------------------------------------------------------------------
+    # Agent checks (multi-agent pipelines)
+    # ------------------------------------------------------------------
+
+    async def check_agent_input(
+        self, agent_id: str, content: Any, *, trace_id: str | None = None
+    ) -> AgentCheckResult:
+        """Check content about to be given to an agent: the agent must be in
+        the policy, and the content must pass the injection scan."""
+        return await self._check_agent_content(
+            agent_id, content, "agent_input", ViolationType.INJECTION_DETECTED_AGENT_INPUT,
+            f"Input to agent '{agent_id}'", trace_id,
+        )
+
+    async def check_agent_output(
+        self, agent_id: str, content: Any, *, trace_id: str | None = None
+    ) -> AgentCheckResult:
+        """Check content an agent produced before it is used downstream."""
+        return await self._check_agent_content(
+            agent_id, content, "agent_output", ViolationType.INJECTION_DETECTED_AGENT_OUTPUT,
+            f"Output from agent '{agent_id}'", trace_id,
+        )
+
+    async def check_handoff(
+        self,
+        from_agent: str,
+        to_agent: str,
+        payload: Any = None,
+        *,
+        trace_id: str | None = None,
+    ) -> AgentCheckResult:
+        """Check a delegation from one agent to another. `to_agent` must be in
+        `from_agent`'s allowed_delegations (enforced like allowed_tools). If a
+        payload is passed it is also injection-scanned."""
+        decision = self.policy_engine.check_handoff(self.session_id, from_agent, to_agent)
+        if not decision.allowed:
+            assert decision.correction is not None
+            self._record_check(from_agent, "handoff", decision.correction, trace_id, to_agent)
+            return AgentCheckResult(allowed=False, correction=decision.correction)
+
+        if payload is not None:
+            blocked = await self._scan_check_content(
+                from_agent, payload, ViolationType.INJECTION_DETECTED_HANDOFF,
+                f"Handoff from '{from_agent}' to '{to_agent}'",
+            )
+            if blocked is not None:
+                self._record_check(from_agent, "handoff", blocked, trace_id, to_agent)
+                return AgentCheckResult(allowed=False, correction=blocked)
+
+        self._record_check(from_agent, "handoff", None, trace_id, to_agent)
+        return AgentCheckResult(allowed=True)
+
+    async def _check_agent_content(
+        self,
+        agent_id: str,
+        content: Any,
+        kind: str,
+        violation: ViolationType,
+        label: str,
+        trace_id: str | None,
+    ) -> AgentCheckResult:
+        decision = self.policy_engine.check_agent_known(agent_id)
+        if not decision.allowed:
+            assert decision.correction is not None
+            self._record_check(agent_id, kind, decision.correction, trace_id)
+            return AgentCheckResult(allowed=False, correction=decision.correction)
+
+        blocked = await self._scan_check_content(agent_id, content, violation, label)
+        self._record_check(agent_id, kind, blocked, trace_id)
+        if blocked is not None:
+            return AgentCheckResult(allowed=False, correction=blocked)
+        return AgentCheckResult(allowed=True)
+
+    async def _scan_check_content(
+        self, agent_id: str, content: Any, violation: ViolationType, label: str
+    ) -> CorrectionInfo | None:
+        settings = self.config.settings
+        if not settings.injection_scanning:
+            return None
+        scan = await scan_for_injection_async(content, settings, classifier=self.classifier)
+        if not scan.detected:
+            return None
+        return CorrectionInfo(
+            violation=violation,
+            message=(
+                f"{label} contained suspicious instruction patterns "
+                f"('{scan.matched_pattern}') and was blocked."
+            ),
+            required_actions=[],
+            call_history=self.call_log.history_names(self.session_id, agent_id),
+        )
+
+    def _record_check(
+        self,
+        agent_id: str,
+        kind: str,
+        correction: CorrectionInfo | None,
+        trace_id: str | None,
+        target_agent: str | None = None,
+    ) -> None:
+        result = CallResult.BLOCKED if correction else CallResult.SUCCESS
+        call = RecordedCall(
+            tool=kind,
+            kind=kind,
+            target_agent=target_agent,
+            agent=agent_id,
+            result=result,
+            violation=correction.violation if correction else None,
+            correction_message=correction.message if correction else None,
+            trace_id=trace_id,
+        )
+        self.call_log.record(self.session_id, call)
+        log_call(
+            session_id=self.session_id,
+            agent_id=agent_id,
+            tool_name=kind if target_agent is None else f"{kind}->{target_agent}",
+            result=result.value,
+            violation=correction.violation.value if correction else None,
+            trace_id=trace_id,
+        )
 
     async def _call_upstream(self, tool_cfg: ToolConfig, params: dict[str, Any]) -> dict[str, Any]:
         method = tool_cfg.method.upper()

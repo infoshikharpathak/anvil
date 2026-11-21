@@ -40,6 +40,13 @@ def validate_config(config: AnvilConfig) -> None:
                 if t not in tool_names:
                     errors.append(f"{ctx}: allowed_tools references unregistered tool '{t}'")
 
+            # allowed_delegations must reference agents in the same policy
+            for target in agent.allowed_delegations:
+                if target not in policy.agents:
+                    errors.append(
+                        f"{ctx}: allowed_delegations references agent '{target}' not in this policy"
+                    )
+
             # trust_overrides must reference tools in allowed_tools
             for t in agent.trust_overrides:
                 if t not in allowed:

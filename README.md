@@ -124,6 +124,18 @@ Config is validated at load time and Anvil **refuses to start** on: references t
 
 `allowed_tools` and injection detection are enforced regardless of strictness. Only sequence/schema violations respect `strictness: loose`.
 
+### Agent checks (multi-agent pipelines)
+
+Add `allowed_delegations: [other_agent, ...]` to an agent to control which agents it may hand work to. It is enforced like `allowed_tools`: a hard block, whatever the strictness.
+
+```python
+await anvil.check_agent_input("planner", user_message, trace_id=req_id)
+await anvil.check_agent_output("researcher", draft, trace_id=req_id)
+await anvil.check_handoff("planner", "researcher", payload=task, trace_id=req_id)
+```
+
+Each returns `AgentCheckResult(allowed, correction)` and never raises. Input, output, and handoff payloads go through the same injection scanner as tool calls. Checks are recorded in the session trace with a `kind` field. They do not count as tool prerequisites.
+
 ## Integration with Any Framework
 
 Anvil wraps the tool-call interface, not the orchestration loop, so it drops into LangGraph, AutoGen, CrewAI, or a raw ReAct loop identically:
