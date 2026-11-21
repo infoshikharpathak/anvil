@@ -30,7 +30,7 @@ from .models import (
 from .policy import PolicyEngine
 from .registry_client import fetch_policy_bundle
 from .trace import TraceBuffer
-from .validators import scan_for_injection, validate_schema
+from .validators import scan_for_injection, scan_for_injection_async, validate_schema
 
 
 class AnvilError(Exception):
@@ -189,7 +189,7 @@ class Anvil:
         # Request-path injection scan (on the outgoing params)
         settings = self.config.settings
         if settings.injection_scanning and tool_cfg.injection_scanning:
-            req_scan = scan_for_injection(params)
+            req_scan = await scan_for_injection_async(params, settings)
             if req_scan.detected:
                 correction = CorrectionInfo(
                     violation=ViolationType.INJECTION_DETECTED_REQUEST,
@@ -232,7 +232,7 @@ class Anvil:
         # --- Response path (only for untrusted tools) -----------------------
         if trust == "untrusted":
             if settings.injection_scanning and tool_cfg.injection_scanning:
-                resp_scan = scan_for_injection(raw_data)
+                resp_scan = await scan_for_injection_async(raw_data, settings)
                 if resp_scan.detected:
                     correction = CorrectionInfo(
                         violation=ViolationType.INJECTION_DETECTED_RESPONSE,

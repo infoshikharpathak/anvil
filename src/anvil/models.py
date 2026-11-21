@@ -42,6 +42,22 @@ class ToolResponse(BaseModel):
 Trust = Literal["trusted", "untrusted"]
 Strictness = Literal["strict", "loose"]
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+InjectionScanMode = Literal["regex", "llm", "hybrid"]
+
+
+class InjectionScannerConfig(BaseModel):
+    """LLM-based injection scanner configuration.
+
+    provider: 'openai' or 'anthropic' — determines API format.
+    model: cheap/fast model to use (e.g. 'gpt-4o-mini', 'claude-haiku-3-5-20241022').
+    api_key_env: environment variable name holding the API key.
+    timeout: seconds before falling back to regex.
+    """
+
+    provider: Literal["openai", "anthropic"] = "openai"
+    model: str = "gpt-4o-mini"
+    api_key_env: str = "OPENAI_API_KEY"
+    timeout: float = 5.0
 
 
 class ResponseSchema(BaseModel):
@@ -80,6 +96,8 @@ class PolicyConfig(BaseModel):
 
 class Settings(BaseModel):
     injection_scanning: bool = True
+    injection_scan_mode: InjectionScanMode = "regex"
+    injection_scanner: InjectionScannerConfig | None = None
     default_strictness: Strictness = "strict"
     default_trust: Trust = "untrusted"
     session_ttl: int = 3600
