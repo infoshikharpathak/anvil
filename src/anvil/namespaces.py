@@ -9,11 +9,18 @@ References written inside an agent's policy (``allowed_tools``, sequences,
 bare ``"get_accounts"`` under ``ironclad.banking_agent`` means
 ``"ironclad.get_accounts"``. To point at another app, write the qualified
 form (``"notify.send_email"``); ``"default.x"`` names the default app.
+
+LLM function names may not contain dots (OpenAI, Anthropic), so tools are
+also exported in an LLM-safe spelling relative to the calling agent: bare
+for its own app, ``"app__tool"`` for another app's. ``resolve`` accepts
+both spellings, so whatever name the model calls comes back to the right
+tool. ``__`` is therefore not allowed inside app, tool or agent names.
 """
 
 from __future__ import annotations
 
 DEFAULT_APP = "default"
+LLM_SEP = "__"
 
 
 def qualify(app: str, name: str) -> str:
@@ -47,14 +54,15 @@ def resolve(ref: str, ctx_app: str) -> str:
     to that app, qualified names are absolute."""
     if "." in ref:
         return canonical(ref)
+    if LLM_SEP in ref:
+        app, name = ref.split(LLM_SEP, 1)
+        return qualify(app, name)
     return qualify(ctx_app, ref)
 
 
 def relative(ref: str, ctx_app: str) -> str:
-    """How an agent in ``ctx_app`` would name ``ref``: bare for its own
-    app's tools, qualified otherwise. The inverse of ``resolve``."""
+    """How an agent in ``ctx_app`` names ``ref`` (exported function names,
+    corrections, required_actions): bare for its own app, ``"app__name"``
+    otherwise, including ``"default__name"``. The inverse of ``resolve``."""
     app, name = split_id(ref)
-    if app == ctx_app:
-        return name
-    # A default-app ID is bare, which would resolve locally; spell it out.
-    return f"{DEFAULT_APP}.{name}" if app == DEFAULT_APP else ref
+    return name if app == ctx_app else f"{app}{LLM_SEP}{name}"

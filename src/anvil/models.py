@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .namespaces import DEFAULT_APP, canonical, qualify, split_id
+from .namespaces import DEFAULT_APP, LLM_SEP, canonical, qualify, split_id
 
 
 class ViolationType(str, Enum):
@@ -170,6 +170,8 @@ class PolicyConfig(BaseModel):
     def _canonical_agent_ids(cls, agents: dict[str, AgentPolicy]) -> dict[str, AgentPolicy]:
         out: dict[str, AgentPolicy] = {}
         for key, agent in agents.items():
+            if LLM_SEP in key:
+                raise ValueError(f"agent '{key}' must not contain '{LLM_SEP}'")
             agent_id = canonical(key)
             if agent_id in out:
                 raise ValueError(f"agent '{agent_id}' is declared more than once")
@@ -204,8 +206,8 @@ class AnvilConfig(BaseModel):
         errors: list[str] = []
         for app_name, app in self.apps.items():
             app.name = app_name
-            if "." in app_name:
-                errors.append(f"app name '{app_name}' must not contain '.'")
+            if "." in app_name or LLM_SEP in app_name:
+                errors.append(f"app name '{app_name}' must not contain '.' or '{LLM_SEP}'")
 
         flat: dict[str, ToolConfig] = {}
 
@@ -219,13 +221,17 @@ class AnvilConfig(BaseModel):
             app_name, short = split_id(key)
             if "." in key and cfg.app not in (DEFAULT_APP, app_name):
                 errors.append(f"tool '{key}' has app '{cfg.app}' but its key says '{app_name}'")
+            if LLM_SEP in short:
+                errors.append(f"tool '{key}' must not contain '{LLM_SEP}'")
             cfg.app = app_name
             add(qualify(app_name, short), cfg)
 
         for app_name, app in self.apps.items():
             for short, cfg in app.tools.items():
-                if "." in short:
-                    errors.append(f"tool '{short}' under app '{app_name}' must not contain '.'")
+                if "." in short or LLM_SEP in short:
+                    errors.append(
+                        f"tool '{short}' under app '{app_name}' must not contain '.' or '{LLM_SEP}'"
+                    )
                 cfg.app = app_name
                 add(qualify(app_name, short), cfg)
             app.tools = {}

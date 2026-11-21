@@ -129,7 +129,10 @@ def test_registry_schema_export_uses_short_name():
 def test_relative_is_inverse_of_resolve():
     from anvil.namespaces import relative
 
-    for ref, app in [("ironclad.get_accounts", "ironclad"), ("notify.send_email", "ironclad"), ("x", "ironclad"), ("x", "default")]:
+    for ref, app in [("ironclad.get_accounts", "ironclad"), ("notify.send_email", "ironclad"), ("x", "ironclad"), ("x", "default"), ("ironclad.y", "default")]:
         assert resolve(relative(ref, app), app) == ref
     assert relative("ironclad.get_accounts", "ironclad") == "get_accounts"
-    assert relative("notify.send_email", "ironclad") == "notify.send_email"
+    assert relative("notify.send_email", "ironclad") == "notify__send_email"
+    assert relative("x", "ironclad") == "default__x"
+    assert resolve("notify__send_email", "ironclad") == "notify.send_email"
+    assert resolve("default__x", "ironclad") == "x"

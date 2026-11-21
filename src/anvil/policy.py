@@ -81,19 +81,20 @@ class PolicyEngine:
         if agent is None:
             return _unknown_agent(agent_id)
 
-        # 2. cross-app tool without a grant -> hard block, ignores strictness
         agent_app, tool_app = app_of(agent_id), app_of(tool_name)
+
+        # Corrections name tools the way this agent calls them: bare for its
+        # own app, "app__tool" for others, matching the exported schemas.
+        def rel(t: str) -> str:
+            return relative(t, agent_app)
+
+        # 2. cross-app tool without a grant -> hard block, ignores strictness
         if tool_app != agent_app and not self.tool_granted(tool_name, agent_app):
             return _cross_app_denied(
-                f"Agent '{agent_id}' (app '{agent_app}') may not call '{tool_name}' "
+                f"Agent '{agent_id}' (app '{agent_app}') may not call '{rel(tool_name)}' "
                 f"(app '{tool_app}'): no grant gives app '{agent_app}' access to it.",
                 self.call_log.history_names(session_id, agent_id),
             )
-
-        # Corrections name tools the way this agent calls them (bare for
-        # its own app), e.g. matching the function names an LLM was given.
-        def rel(t: str) -> str:
-            return relative(t, agent_app)
 
         # 3. disallowed tool -> hard block, always enforced regardless of strictness
         if tool_name not in agent.allowed_tools:
