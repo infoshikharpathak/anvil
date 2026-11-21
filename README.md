@@ -114,6 +114,12 @@ policies:
 
 settings:
   injection_scanning: true
+  injection_scan_mode: regex        # regex | llm | hybrid (see Injection scanning)
+  # injection_scanner:              # used by llm / hybrid
+  #   provider: anthropic           # or openai
+  #   model: claude-haiku-5-5
+  #   api_key_env: ANTHROPIC_API_KEY
+  #   timeout: 5
   default_strictness: strict
   default_trust: untrusted
   session_ttl: 3600
@@ -161,7 +167,7 @@ policies:
 - **IDs.** Tools are `app.tool` and agents are `app.agent`. Top-level `tools:` with full `endpoint`s still work and belong to the `default` app, whose IDs stay bare, so existing configs are unchanged.
 - **Boundaries.** An agent may only use its own app's tools and delegate to its own app's agents, unless a grant says otherwise. Config load rejects ungranted cross-app references, and `execute()` / `check_handoff()` enforce the same rule at call time as `cross_app_denied`. That is always a hard block, whatever the strictness. A grant lifts only the app boundary: the tool still has to be in `allowed_tools`.
 - **Credentials.** When forwarding to a tool, Anvil reads the tool's app secret from `secret_env` and sends it in `header`. If the variable is unset, the call fails closed as `upstream_error`. The secret is redacted from response data and error messages, so it never reaches the agent, traces, or audit logs.
-- **Tool schemas.** `GET /tools/{id}/schema?format=openai|anthropic` exports the short name (`get_accounts`), because those APIs don't allow dots in function names.
+- **Tool names for LLMs.** OpenAI and Anthropic don't allow dots in function names, so `GET /tools/{id}/schema?format=openai|anthropic&agent=ironclad.banking_agent` names tools relative to the calling agent's app: bare for its own tools (`send_email`), `app__tool` for granted tools of other apps (`notify__send_email`, `default__x`). Without `agent`, the API key's app is used. `execute()` accepts every spelling, so whatever name the model calls reaches the right tool, even when two apps both have a `send_email`. Corrections and `required_actions` use the same spelling. Because of this, `__` isn't allowed in app, tool or agent names.
 
 Config is validated at load time and Anvil **refuses to start** on: references to unregistered tools, `allowed_tools` mismatches, cross-app references without a grant, agents or tools in undeclared apps, plaintext API keys, circular prerequisites, or `match_fields` not present in a tool's parameter schema.
 
@@ -217,8 +223,8 @@ Policy writes must also stay inside the caller's app. With no keys configured, t
 For frameworks that need tool *definitions* up front, pull them from the registry instead of hand-writing them:
 
 ```
-GET /tools/send_payment/schema?format=openai
-GET /tools/send_payment/schema?format=anthropic
+GET /tools/send_payment/schema?format=openai&agent=payment_agent
+GET /tools/send_payment/schema?format=anthropic&agent=payment_agent
 ```
 
 ## Registry UI (v2)
@@ -240,15 +246,45 @@ Server-rendered pages served directly by the registry app — Jinja2 templates, 
 
 Creating or editing a policy through the UI (or the raw API) runs the same fail-fast validation the YAML loader applies — dangling tool references and circular prerequisites are rejected with a 422, not silently accepted.
 
-The UI pages are not authenticated, even when API keys are configured. Keep the registry UI on a trusted network. See Security Model below.
+**UI auth.** With no app keys configured, the UI is open. Once any app has `api_keys`, `/` and every `/ui/*` page require the admin key. Set `ANVIL_ADMIN_KEY` to its SHA-256 digest; plaintext is rejected at startup.
+- **Browsers** log in at `/ui/login`. This sets an `HttpOnly`, `SameSite=Strict` cookie holding a random session token, not the key.
+- **Scripts** can send `Authorization: Bearer <admin key>` instead.
+
+The admin sees every app. The UI's fetch helper sends the session cookie plus an `X-Anvil-UI` header, and the API only accepts the cookie when that header is present. This blocks cross-site form posts.
 
 ## Security Model
 
 **Apps are the trust boundary.** A library instance bound with `app=` can't act as another app's agent. A registry caller with an app API key can only read and write that app's policies, tools and traces. Within one app, Anvil still trusts the calling code to pass the right `agent_id`: any code holding an app's instance or key can claim to be any of that app's agents. Anvil guards against agent error, misconfiguration and one app overreaching into another. It does not guard against a compromised app process.
 
-Known gaps: the registry UI pages are unauthenticated, and with no `api_keys` configured the registry API is fully open (the pre-apps behavior).
+Known gaps:
+- With no `api_keys` configured, the registry API and UI are fully open (the pre-apps behavior).
+- Admin sessions live in registry memory and end on restart.
 
-Injection scanning is pattern-based, not ML-based — expect false negatives on novel phrasing and occasional false positives on tools that legitimately discuss prompt injection (use `injection_scanning: false` per-tool to override).
+### Injection scanning
+
+Anvil scans tool requests, untrusted tool responses, and agent input, output and handoff payloads. `settings.injection_scan_mode` picks how:
+
+| Mode | What runs | Cost |
+|---|---|---|
+| `regex` (default) | Pattern matching for known phrasings (instruction overrides, role switches, exfiltration URLs) | Zero latency, zero cost. Misses novel phrasing and can flag tools that legitimately discuss prompt injection. |
+| `llm` | An LLM classifier (`injection_scanner`: OpenAI or Anthropic over raw httpx, no SDK needed) | One cheap model call per scan |
+| `hybrid` | Regex first; the LLM only for payloads regex passes | LLM calls only on regex misses |
+
+If the classifier fails for any reason (network, timeout, bad JSON, missing API key), the scan falls back to regex. The pipeline never crashes on a scan.
+
+**Pluggable classifier.** Pass your own async `(text) -> InjectionResult` to `Anvil(..., classifier=fn)` (also accepted by `from_config` / `from_registry`). It replaces the built-in LLM scanner in `llm` and `hybrid` modes. In the default `regex` mode, passing one runs as `hybrid`. A classifier that raises or returns the wrong type falls back to regex.
+
+```python
+from anvil import Anvil, InjectionResult
+
+async def my_classifier(text: str) -> InjectionResult:
+    flagged = await my_model.is_injection(text)
+    return InjectionResult(detected=flagged, matched_pattern="my_model" if flagged else None)
+
+anvil = Anvil.from_config("anvil.yaml", policy="strict-payments", classifier=my_classifier)
+```
+
+Use `injection_scanning: false` on a tool to skip scanning for it.
 
 ## Why Not Just Use Prompts?
 
