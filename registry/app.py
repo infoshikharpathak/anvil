@@ -34,4 +34,7 @@ app.include_router(ui.router)
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "policies": list(storage.list_policies().keys())}
+    current = app.state.storage
+    if current.keys.enabled:  # don't list policy names to unauthenticated callers
+        return {"status": "ok"}
+    return {"status": "ok", "policies": list(current.list_policies().keys())}

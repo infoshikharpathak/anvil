@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,9 @@ from pydantic import ValidationError
 from .models import AnvilConfig
 from .namespaces import DEFAULT_APP, app_of
 from .policy import GrantTable, resolve_agent_policy
+
+
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
 
 class ConfigError(Exception):
@@ -38,6 +42,21 @@ def validate_config(config: AnvilConfig) -> None:
     known_apps = set(config.apps) | {DEFAULT_APP}
     grants = GrantTable(config.grants)
     all_agents = {a for p in config.policies.values() for a in p.agents}
+
+    client_owner: dict[str, str] = {}
+    for app_name, app in config.apps.items():
+        for client_id, digest in app.api_keys.items():
+            if not _SHA256_HEX.fullmatch(digest):
+                errors.append(
+                    f"app '{app_name}': api_keys['{client_id}'] must be a SHA-256 hex digest, "
+                    f"not the key itself"
+                )
+            if client_id in client_owner:
+                errors.append(
+                    f"client_id '{client_id}' has API keys in both app "
+                    f"'{client_owner[client_id]}' and app '{app_name}'"
+                )
+            client_owner[client_id] = app_name
 
     for i, grant in enumerate(config.grants):
         ctx = f"grant #{i + 1}"

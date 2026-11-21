@@ -109,6 +109,9 @@ class AppConfig(BaseModel):
     name: str = ""  # filled in from the mapping key
     base_url: str | None = None
     auth: AppAuth | None = None
+    # Registry API keys for this app: client_id -> SHA-256 hex of the key.
+    # Only the registry reads these; they are stripped from every response.
+    api_keys: dict[str, str] = Field(default_factory=dict)
     # Tools declared under the app. Moved into AnvilConfig.tools (keyed by
     # canonical "app.tool" ID) at load time, so this is empty afterwards.
     tools: dict[str, ToolConfig] = Field(default_factory=dict)

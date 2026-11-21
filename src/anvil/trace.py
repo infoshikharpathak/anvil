@@ -21,11 +21,13 @@ class TraceBuffer:
         policy_name: str,
         call_log: CallLog,
         fallback_dir: str = "./anvil_traces",
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.session_id = session_id
         self.policy_name = policy_name
         self.call_log = call_log
         self.fallback_dir = fallback_dir
+        self._headers = headers or {}
         self.started_at = _iso_now()
 
     def build_payload(self) -> dict[str, Any]:
@@ -49,7 +51,9 @@ class TraceBuffer:
         if registry_url:
             try:
                 async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.post(f"{registry_url}/traces", json=payload)
+                    resp = await client.post(
+                        f"{registry_url}/traces", json=payload, headers=self._headers
+                    )
                     resp.raise_for_status()
                 return True
             except Exception:

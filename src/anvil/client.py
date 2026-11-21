@@ -30,8 +30,8 @@ from .models import (
     now_ms,
 )
 from .namespaces import DEFAULT_APP, app_of, canonical, resolve
-from .policy import PolicyEngine
-from .registry_client import fetch_policy_bundle
+from .policy import PolicyDecision, PolicyEngine
+from .registry_client import fetch_policy_bundle, registry_headers
 from .trace import TraceBuffer
 from .validators import Classifier, scan_for_injection_async, validate_schema
 
@@ -50,7 +50,9 @@ class Anvil:
         registry_url: str | None = None,
         session_id: str | None = None,
         client_id: str | None = None,
+        client_key: str | None = None,
         classifier: Classifier | None = None,
+        app: str | None = None,
     ) -> None:
         """Two ways to construct:
 
@@ -63,6 +65,12 @@ class Anvil:
 
         `classifier` is an optional async ``(text) -> InjectionResult``
         callable that replaces the built-in httpx LLM injection scanner.
+
+        `app` binds the instance to one app: bare agent IDs resolve within
+        it, and agent IDs from any other app are rejected (CROSS_APP_DENIED).
+
+        `client_id` / `client_key` identify this caller to the registry,
+        which serves only the policies and tools of the key's app.
         """
         policy_name = policy
         if policy_name is None:
@@ -76,14 +84,20 @@ class Anvil:
         if config is None:
             if registry_url is None:
                 raise AnvilError("Either `config` or `registry_url` must be provided.")
-            config = _fetch_policy_bundle_sync(registry_url, policy_name, self.session_id, client_id)
+            config = _fetch_policy_bundle_sync(
+                registry_url, policy_name, self.session_id, client_id, client_key
+            )
         assert config is not None
 
         if policy_name not in config.policies:
             raise AnvilError(f"Policy '{policy_name}' not found in config.")
 
+        if app is not None and app != DEFAULT_APP and app not in config.apps:
+            raise AnvilError(f"App '{app}' is not declared in config.")
+
         self.config = config
         self.policy_name = policy_name
+        self.app = app
 
         self.call_log = CallLog(session_ttl=config.settings.session_ttl)
         self.policy_engine = PolicyEngine(
@@ -94,6 +108,7 @@ class Anvil:
             policy_name,
             self.call_log,
             fallback_dir=config.settings.trace_fallback_dir,
+            headers=registry_headers(None, client_id, client_key),
         )
         self._extra_tools: dict[str, ToolConfig] = {}
         # Test seam: an httpx transport for upstream calls (None = real network).
@@ -110,9 +125,10 @@ class Anvil:
         policy: str,
         session_id: str | None = None,
         classifier: Classifier | None = None,
+        app: str | None = None,
     ) -> "Anvil":
         config = load_config(path)
-        return cls(config, policy, session_id=session_id, classifier=classifier)
+        return cls(config, policy, session_id=session_id, classifier=classifier, app=app)
 
     @classmethod
     async def from_registry(
@@ -122,19 +138,23 @@ class Anvil:
         session_id: str | None = None,
         client_id: str | None = None,
         classifier: Classifier | None = None,
+        app: str | None = None,
+        client_key: str | None = None,
     ) -> "Anvil":
         """Async variant of the registry-backed constructor, for callers
         already inside an event loop (avoids the sync client's blocking
         call)."""
         sid = session_id or new_session_id()
-        config = await fetch_policy_bundle(registry_url, policy, sid, client_id)
+        config = await fetch_policy_bundle(registry_url, policy, sid, client_id, client_key=client_key)
         return cls(
             config,
             policy,
             session_id=sid,
             registry_url=registry_url,
             client_id=client_id,
+            client_key=client_key,
             classifier=classifier,
+            app=app,
         )
 
     # ------------------------------------------------------------------
@@ -180,8 +200,22 @@ class Anvil:
         return decorator
 
     def _agent_id(self, agent_id: str) -> str:
-        """Canonical agent ID. A bare name belongs to the default app."""
-        return canonical(agent_id)
+        """Canonical agent ID. A bare name belongs to the bound app, or the
+        default app when the instance is unbound."""
+        return resolve(agent_id, self.app) if self.app else canonical(agent_id)
+
+    def _binding_violation(self, agent_id: str) -> CorrectionInfo | None:
+        if self.app is None or app_of(agent_id) == self.app:
+            return None
+        return CorrectionInfo(
+            violation=ViolationType.CROSS_APP_DENIED,
+            message=(
+                f"This Anvil instance is bound to app '{self.app}'; agent '{agent_id}' "
+                f"belongs to app '{app_of(agent_id)}'."
+            ),
+            required_actions=[],
+            call_history=[],
+        )
 
     def _resolve_tool(self, tool_name: str, agent_id: str | None = None) -> ToolConfig:
         """Look up a tool. A bare name resolves within the calling agent's
@@ -212,6 +246,10 @@ class Anvil:
         with the session trace, and included in audit log lines.
         """
         agent_id = self._agent_id(agent_id)
+        bound = self._binding_violation(agent_id)
+        if bound is not None:
+            self._record(agent_id, canonical(tool_name), params, CallResult.BLOCKED, bound, trace_id=trace_id)
+            return ToolResponse(success=False, data=None, tool_executed=False, correction=bound)
         tool_cfg = self._resolve_tool(tool_name, agent_id)
         tool_name = tool_cfg.name  # canonical "app.tool" ID from here on
 
@@ -377,7 +415,12 @@ class Anvil:
         resolves within `from_agent`'s app."""
         from_agent = self._agent_id(from_agent)
         to_agent = resolve(to_agent, app_of(from_agent))
-        decision = self.policy_engine.check_handoff(self.session_id, from_agent, to_agent)
+        bound = self._binding_violation(from_agent)
+        decision = (
+            PolicyDecision(allowed=False, correction=bound)
+            if bound is not None
+            else self.policy_engine.check_handoff(self.session_id, from_agent, to_agent)
+        )
         if not decision.allowed:
             assert decision.correction is not None
             self._record_check(from_agent, "handoff", decision.correction, trace_id, to_agent)
@@ -404,7 +447,12 @@ class Anvil:
         label: str,
         trace_id: str | None,
     ) -> AgentCheckResult:
-        decision = self.policy_engine.check_agent_known(agent_id)
+        bound = self._binding_violation(agent_id)
+        decision = (
+            PolicyDecision(allowed=False, correction=bound)
+            if bound is not None
+            else self.policy_engine.check_agent_known(agent_id)
+        )
         if not decision.allowed:
             assert decision.correction is not None
             self._record_check(agent_id, kind, decision.correction, trace_id)
@@ -598,14 +646,16 @@ class _UpstreamError(Exception):
 
 
 def _fetch_policy_bundle_sync(
-    registry_url: str, policy_name: str, session_id: str, client_id: str | None
+    registry_url: str,
+    policy_name: str,
+    session_id: str,
+    client_id: str | None,
+    client_key: str | None = None,
 ) -> AnvilConfig:
     """Blocking fetch used only from the synchronous `Anvil(...)` constructor
     at startup — the one network call the library makes before running
     independently of the registry."""
-    headers = {"X-Session-Id": session_id}
-    if client_id:
-        headers["X-Client-Id"] = client_id
+    headers = registry_headers(session_id, client_id, client_key)
     try:
         with httpx.Client(timeout=5.0) as client:
             resp = client.get(f"{registry_url}/policies/{policy_name}", headers=headers)

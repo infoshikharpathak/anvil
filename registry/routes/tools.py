@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from anvil.models import ToolConfig
 from anvil.namespaces import short_name
+
+from ..auth import caller_app
 
 router = APIRouter(tags=["tools"])
 
@@ -15,9 +17,9 @@ SchemaFormat = Literal["openai", "anthropic", "raw"]
 
 
 @router.get("/tools")
-def list_tools(request: Request) -> dict:
+def list_tools(request: Request, app: str | None = Depends(caller_app)) -> dict:
     storage = request.app.state.storage
-    return {name: cfg.model_dump() for name, cfg in storage.list_tools().items()}
+    return {name: cfg.model_dump() for name, cfg in storage.list_tools(app).items()}
 
 
 @router.get("/tools/{tool_name}/schema")
@@ -25,9 +27,10 @@ def tool_schema(
     tool_name: str,
     request: Request,
     format: SchemaFormat = Query(default="raw"),
+    app: str | None = Depends(caller_app),
 ) -> dict[str, Any]:
     storage = request.app.state.storage
-    tool: ToolConfig | None = storage.get_tool(tool_name)
+    tool: ToolConfig | None = storage.get_tool(tool_name, app)
     if tool is None:
         raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 
