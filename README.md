@@ -83,7 +83,7 @@ Three distinct outcomes on a violation:
 | Outcome | `tool_executed` | `required_actions` | Meaning |
 |---|---|---|---|
 | **Correction** | `false` | non-empty | Not called. Agent has a recovery path. |
-| **Hard block** | `false` | empty | Not called. No recovery path (disallowed tool, unknown agent, injected request). |
+| **Hard block** | `false` | empty | Not called. No recovery path (disallowed tool, unknown agent, cross-app call without a grant, injected request). |
 | **Response withheld** | `true` | empty | **Was called.** The side effect already happened; the response was flagged (injection or schema violation on an untrusted tool) and withheld. The agent must not retry. |
 
 ## Config Reference (`anvil.yaml`)
@@ -120,7 +120,50 @@ settings:
   trace_fallback_dir: "./anvil_traces"
 ```
 
-Config is validated at load time and Anvil **refuses to start** on: references to unregistered tools, `allowed_tools` mismatches, circular prerequisites, or `match_fields` not present in a tool's parameter schema.
+### Apps, grants, and credentials
+
+Tools and agents belong to an **app**. Declare apps under `apps:`, give each one a `base_url` and optional `auth`, and put its tools under it with a `path`:
+
+```yaml
+apps:
+  ironclad:
+    base_url: "http://localhost:8001"
+    auth:                              # optional
+      header: Authorization
+      secret_env: IRONCLAD_API_TOKEN   # env var name only, never the secret
+      prefix: "Bearer "
+    api_keys:                          # registry callers for this app (see below)
+      ironclad-agent-service: "<sha256 hex of the key>"
+    tools:
+      get_accounts:
+        path: /accounts
+        method: GET
+  notify:
+    base_url: "http://localhost:8002"
+    tools:
+      send_email: { path: /email }
+
+grants:
+  - tool: notify.send_email           # let ironclad agents use this notify tool
+    to_apps: [ironclad]
+  # - agent: notify.dispatcher        # or let them hand off to a notify agent
+  #   to_apps: [ironclad]
+
+policies:
+  ironclad-banking:
+    agents:
+      ironclad.banking_agent:          # agent IDs are "app.agent"
+        allowed_tools:
+          - get_accounts               # bare names resolve within the agent's app
+          - notify.send_email          # another app's tool: needs a grant
+```
+
+- **IDs.** Tools are `app.tool` and agents are `app.agent`. Top-level `tools:` with full `endpoint`s still work and belong to the `default` app, whose IDs stay bare, so existing configs are unchanged.
+- **Boundaries.** An agent may only use its own app's tools and delegate to its own app's agents, unless a grant says otherwise. Config load rejects ungranted cross-app references, and `execute()` / `check_handoff()` enforce the same rule at call time as `cross_app_denied`. That is always a hard block, whatever the strictness. A grant lifts only the app boundary: the tool still has to be in `allowed_tools`.
+- **Credentials.** When forwarding to a tool, Anvil reads the tool's app secret from `secret_env` and sends it in `header`. If the variable is unset, the call fails closed as `upstream_error`. The secret is redacted from response data and error messages, so it never reaches the agent, traces, or audit logs.
+- **Tool schemas.** `GET /tools/{id}/schema?format=openai|anthropic` exports the short name (`get_accounts`), because those APIs don't allow dots in function names.
+
+Config is validated at load time and Anvil **refuses to start** on: references to unregistered tools, `allowed_tools` mismatches, cross-app references without a grant, agents or tools in undeclared apps, plaintext API keys, circular prerequisites, or `match_fields` not present in a tool's parameter schema.
 
 `allowed_tools` and injection detection are enforced regardless of strictness. Only sequence/schema violations respect `strictness: loose`.
 
@@ -149,6 +192,28 @@ response = await anvil.execute(agent_id, tool_name, params)
 return response.model_dump()   # feed straight back to the agent as the tool result
 ```
 
+### Binding a caller to an app
+
+```python
+# Library mode: this instance only accepts agents of the ironclad app.
+anvil = Anvil.from_config("anvil.yaml", policy="ironclad-banking", app="ironclad")
+await anvil.execute("banking_agent", "get_accounts", params)  # -> ironclad.banking_agent
+await anvil.execute("notify.dispatcher", "send_email", params)  # -> cross_app_denied
+
+# Registry mode: the API key decides which app's policies and tools you get.
+anvil = await Anvil.from_registry(
+    "http://localhost:8100", policy="ironclad-banking", app="ironclad",
+    client_id="ironclad-agent-service", client_key=os.environ["ANVIL_REGISTRY_KEY"],
+)
+```
+
+The registry stores only SHA-256 digests (`python -c "import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())" <key>`). The client sends `X-Client-Id` plus `Authorization: Bearer <key>`. Once any app has `api_keys`, every JSON API route requires a valid key and is scoped to that app:
+- **Policies:** only those whose agents all belong to the app. Anything else returns 404.
+- **Tools:** the app's own tools plus tools granted to it.
+- **Traces and checkouts:** only the app's own.
+
+Policy writes must also stay inside the caller's app. With no keys configured, the registry is open, as before.
+
 For frameworks that need tool *definitions* up front, pull them from the registry instead of hand-writing them:
 
 ```
@@ -175,11 +240,13 @@ Server-rendered pages served directly by the registry app — Jinja2 templates, 
 
 Creating or editing a policy through the UI (or the raw API) runs the same fail-fast validation the YAML loader applies — dangling tool references and circular prerequisites are rejected with a 422, not silently accepted.
 
-There is currently no authentication on any of this — anyone who can reach the registry can create, edit, or read any policy. See Security Model below.
+The UI pages are not authenticated, even when API keys are configured. Keep the registry UI on a trusted network. See Security Model below.
 
-## Security Model (v1)
+## Security Model
 
-Anvil v1 trusts the calling code to pass a correct `agent_id`. There is no authentication on the library, the registry API, or the registry UI — any code using the library can claim to be any agent, and anyone who can reach the registry can create or edit policies (including through the UI added in v2). **This is a deliberate scope decision, not an oversight.** Anvil guards against agent error and misconfiguration, not adversarial agents or compromised application/network access. Authenticated agent identity and access control on policy edits are a future milestone.
+**Apps are the trust boundary.** A library instance bound with `app=` can't act as another app's agent. A registry caller with an app API key can only read and write that app's policies, tools and traces. Within one app, Anvil still trusts the calling code to pass the right `agent_id`: any code holding an app's instance or key can claim to be any of that app's agents. Anvil guards against agent error, misconfiguration and one app overreaching into another. It does not guard against a compromised app process.
+
+Known gaps: the registry UI pages are unauthenticated, and with no `api_keys` configured the registry API is fully open (the pre-apps behavior).
 
 Injection scanning is pattern-based, not ML-based — expect false negatives on novel phrasing and occasional false positives on tools that legitimately discuss prompt injection (use `injection_scanning: false` per-tool to override).
 
