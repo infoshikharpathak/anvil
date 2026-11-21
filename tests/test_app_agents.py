@@ -88,7 +88,14 @@ async def test_execute_with_app_agent_and_bare_tool_name():
     client._call_upstream = fake
     blocked = await client.execute("ironclad.banking_agent", "initiate_transfer", {})
     assert blocked.correction.violation == ViolationType.MISSING_PREREQUISITE
-    assert blocked.correction.required_actions == ["ironclad.get_accounts"]
+    # corrections use the names the agent calls tools by
+    assert blocked.correction.required_actions == ["get_accounts"]
+    assert "Please call get_accounts first" in blocked.correction.message
+    # and execute() accepts them back
+    assert (await client.execute("ironclad.banking_agent", blocked.correction.required_actions[0], {})).success
+    ok = await client.execute("ironclad.banking_agent", "initiate_transfer", {})
+    assert ok.success and ok.data == {"ok": "ironclad.initiate_transfer"}
+    return
 
     assert (await client.execute("ironclad.banking_agent", "get_accounts", {})).success
     ok = await client.execute("ironclad.banking_agent", "initiate_transfer", {})

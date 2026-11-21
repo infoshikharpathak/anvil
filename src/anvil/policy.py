@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .call_log import CallLog
 from .models import AgentPolicy, CorrectionInfo, Grant, PolicyConfig, SequenceRule, ViolationType
-from .namespaces import app_of, resolve
+from .namespaces import app_of, relative, resolve
 
 
 class GrantTable:
@@ -90,6 +90,11 @@ class PolicyEngine:
                 self.call_log.history_names(session_id, agent_id),
             )
 
+        # Corrections name tools the way this agent calls them (bare for
+        # its own app), e.g. matching the function names an LLM was given.
+        def rel(t: str) -> str:
+            return relative(t, agent_app)
+
         # 3. disallowed tool -> hard block, always enforced regardless of strictness
         if tool_name not in agent.allowed_tools:
             return PolicyDecision(
@@ -97,8 +102,8 @@ class PolicyEngine:
                 correction=CorrectionInfo(
                     violation=ViolationType.DISALLOWED_TOOL,
                     message=(
-                        f"Agent '{agent_id}' is not permitted to call '{tool_name}'. "
-                        f"Allowed tools: {agent.allowed_tools}."
+                        f"Agent '{agent_id}' is not permitted to call '{rel(tool_name)}'. "
+                        f"Allowed tools: {[rel(t) for t in agent.allowed_tools]}."
                     ),
                     required_actions=[],
                     call_history=self.call_log.history_names(session_id, agent_id),
@@ -114,13 +119,13 @@ class PolicyEngine:
                 if not self.call_log.has_satisfied(
                     session_id, agent_id, req, rule.match_fields, params
                 ):
-                    missing.append(req)
+                    missing.append(rel(req))
 
         if missing:
             correction = CorrectionInfo(
                 violation=ViolationType.MISSING_PREREQUISITE,
                 message=(
-                    f"{', '.join(missing)} required before '{tool_name}'. "
+                    f"{', '.join(missing)} required before '{rel(tool_name)}'. "
                     f"Please call {', '.join(missing)} first"
                     + (f" with matching {self._match_field_names(agent, tool_name)}." if missing else ".")
                 ),

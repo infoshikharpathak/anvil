@@ -48,3 +48,13 @@ def resolve(ref: str, ctx_app: str) -> str:
     if "." in ref:
         return canonical(ref)
     return qualify(ctx_app, ref)
+
+
+def relative(ref: str, ctx_app: str) -> str:
+    """How an agent in ``ctx_app`` would name ``ref``: bare for its own
+    app's tools, qualified otherwise. The inverse of ``resolve``."""
+    app, name = split_id(ref)
+    if app == ctx_app:
+        return name
+    # A default-app ID is bare, which would resolve locally; spell it out.
+    return f"{DEFAULT_APP}.{name}" if app == DEFAULT_APP else ref
