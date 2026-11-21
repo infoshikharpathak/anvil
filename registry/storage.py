@@ -26,11 +26,13 @@ def policy_owner(policy: PolicyConfig) -> str | None:
 
 
 class RegistryStorage:
-    def __init__(self, config: AnvilConfig, session_ttl: int = 3600) -> None:
+    def __init__(
+        self, config: AnvilConfig, session_ttl: int = 3600, admin_key_digest: str | None = None
+    ) -> None:
         self.apps: dict[str, AppConfig] = dict(config.apps)
         self.tools: dict[str, ToolConfig] = dict(config.tools)
         self.grants = list(config.grants)
-        self.keys = KeyTable(config.apps)
+        self.keys = KeyTable(config.apps, admin_digest=admin_key_digest)
         self.policies: dict[str, PolicyConfig] = dict(config.policies)
         self.settings = config.settings
         self.session_ttl = session_ttl

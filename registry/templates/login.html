@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Admin login — Anvil Registry{% endblock %}
+{% block content %}
+<h1>Admin login</h1>
+{% if admin_configured %}
+<p class="subtitle">This registry has app API keys configured, so the UI needs the admin key.</p>
+<div class="panel">
+  <form id="login-form">
+    <div class="form-row">
+      <label for="admin-key">Admin key</label>
+      <input type="password" id="admin-key" autocomplete="current-password">
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn">Log in</button>
+      <span id="login-status" class="status-msg"></span>
+    </div>
+  </form>
+</div>
+{% else %}
+<p class="subtitle">This registry has app API keys configured but no admin key. Set
+<code>ANVIL_ADMIN_KEY</code> to the SHA-256 hex digest of an admin key and restart.</p>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>initLoginForm();</script>
+{% endblock %}

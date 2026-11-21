@@ -11,14 +11,59 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-router = APIRouter(include_in_schema=False)
+from ..auth import SESSION_COOKIE, require_admin_ui
+
+# Pages need the admin login once app keys exist (see registry/auth.py).
+router = APIRouter(include_in_schema=False, dependencies=[Depends(require_admin_ui)])
+# Login/logout must stay reachable without being logged in.
+login_router = APIRouter(include_in_schema=False)
+
+
+def login_page(request: Request, status_code: int = 200):
+    keys = request.app.state.storage.keys
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"active": "", "admin_configured": keys.admin_digest is not None},
+        status_code=status_code,
+    )
+
+
+@login_router.get("/ui/login", response_class=HTMLResponse)
+def login_form(request: Request):
+    return login_page(request)
+
+
+@login_router.post("/ui/login")
+def login(request: Request, key: str = Body(..., embed=True)):
+    keys = request.app.state.storage.keys
+    if not keys.is_admin_key(key):
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(
+        SESSION_COOKIE,
+        keys.new_admin_session(),
+        httponly=True,
+        samesite="strict",
+        secure=request.url.scheme == "https",
+        path="/",
+    )
+    return resp
+
+
+@login_router.post("/ui/logout")
+def logout(request: Request):
+    request.app.state.storage.keys.end_admin_session(request.cookies.get(SESSION_COOKIE))
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
 
 POLICY_SKELETON = {
     "description": "",

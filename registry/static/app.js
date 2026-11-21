@@ -2,8 +2,19 @@
 // no framework — server-rendered pages with fetch() for the interactive bits
 // (policy save/create, activity polling).
 
+// Every API call from the UI goes through apiFetch: it sends the admin
+// session cookie plus the X-Anvil-UI header the registry requires before it
+// accepts that cookie (a cross-site form can't set custom headers).
+function apiFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    credentials: "same-origin",
+    headers: { "X-Anvil-UI": "1", ...(options.headers || {}) },
+  });
+}
+
 async function postJSON(url, method, body) {
-  const resp = await fetch(url, {
+  const resp = await apiFetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -123,8 +134,8 @@ function renderActivity(checkouts, traces) {
 async function pollActivity() {
   try {
     const [checkouts, traces] = await Promise.all([
-      fetch("/checkouts").then((r) => r.json()),
-      fetch("/traces?limit=15").then((r) => r.json()),
+      apiFetch("/checkouts").then((r) => r.json()),
+      apiFetch("/traces?limit=15").then((r) => r.json()),
     ]);
     renderActivity(checkouts, traces);
   } catch (err) {
@@ -139,3 +150,20 @@ function initActivityFeed() {
 }
 
 document.addEventListener("DOMContentLoaded", initActivityFeed);
+
+// -- Admin login (login.html) -------------------------------------------------
+
+function initLoginForm() {
+  const form = document.getElementById("login-form");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const status = document.getElementById("login-status");
+    try {
+      await postJSON("/ui/login", "POST", { key: document.getElementById("admin-key").value });
+      window.location.href = window.location.pathname === "/ui/login" ? "/" : window.location.href;
+    } catch (err) {
+      showStatus(status, err.message, false);
+    }
+  });
+}
