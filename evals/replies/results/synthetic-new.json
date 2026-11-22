@@ -427,10 +427,11 @@
    "label": "ok",
    "outcome": "block",
    "votes": {
-    "block": 3
+    "pass": 1,
+    "block": 2
    },
    "checks": [
-    "ai_instruction",
+    null,
     "ai_instruction",
     "ai_instruction"
    ],
@@ -484,8 +485,8 @@
  ],
  "tokens": [
   40140,
-  2210
+  2251
  ],
- "cost_usd": 0.007347,
- "at": "2026-11-22T18:38:41Z"
+ "cost_usd": 0.007372,
+ "at": "2026-11-22T18:54:52Z"
 }
