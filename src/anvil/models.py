@@ -41,6 +41,11 @@ class ToolResponse(BaseModel):
     data: dict[str, Any] | list[Any] | None = None
     tool_executed: bool = False
     correction: CorrectionInfo | None = None
+    # When a response was withheld (injection in it, or a strict schema
+    # failure), the tool's raw result for the HOST only: excluded from
+    # model_dump/JSON, so it never reaches the model. Lets the host tell the
+    # user what was created (e.g. a transfer ID) without showing the text.
+    withheld_data: Any = Field(default=None, exclude=True)
 
 
 class AgentCheckResult(BaseModel):

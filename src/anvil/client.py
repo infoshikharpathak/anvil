@@ -370,7 +370,8 @@ class Anvil:
                         agent_id, tool_name, params, CallResult.RESPONSE_WITHHELD, correction, latency_ms,
                         trace_id=trace_id,
                     )
-                    return ToolResponse(success=False, data=None, tool_executed=True, correction=correction)
+                    return ToolResponse(success=False, data=None, tool_executed=True, correction=correction,
+                                        withheld_data=raw_data)
 
             schema_result = validate_schema(raw_data, tool_cfg.response_schema)
             if not schema_result.valid:
@@ -388,7 +389,8 @@ class Anvil:
                         agent_id, tool_name, params, CallResult.RESPONSE_WITHHELD, correction, latency_ms,
                         trace_id=trace_id,
                     )
-                    return ToolResponse(success=False, data=None, tool_executed=True, correction=correction)
+                    return ToolResponse(success=False, data=None, tool_executed=True, correction=correction,
+                                        withheld_data=raw_data)
                 # loose: log warning, pass response through anyway
                 log_call(
                     session_id=self.session_id,
