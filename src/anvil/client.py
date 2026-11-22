@@ -13,6 +13,7 @@ import os
 from typing import Any, Callable
 
 import httpx
+from pydantic import ValidationError
 
 from .audit import log_call
 from .call_log import CallLog
@@ -373,8 +374,25 @@ class Anvil:
                 )
 
         # --- Success ---------------------------------------------------------
+        # Build the response the agent will get *before* recording success: if
+        # the data can't be delivered (e.g. a bare JSON scalar), the call must
+        # not trace as success or count as a prerequisite.
+        try:
+            response = ToolResponse(success=True, data=raw_data, tool_executed=True, correction=None)
+        except ValidationError:
+            correction = CorrectionInfo(
+                violation=ViolationType.UPSTREAM_ERROR,
+                message=(
+                    f"'{tool_name}' returned a {type(raw_data).__name__} response; only JSON objects "
+                    f"and arrays can be passed to the agent. Not recorded as a prerequisite."
+                ),
+                required_actions=[],
+                call_history=self.call_log.history_names(self.session_id, agent_id),
+            )
+            self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction, latency_ms, trace_id=trace_id)
+            return ToolResponse(success=False, data=None, tool_executed=True, correction=correction)
         self._record(agent_id, tool_name, params, CallResult.SUCCESS, None, latency_ms, trace_id=trace_id)
-        return ToolResponse(success=True, data=raw_data, tool_executed=True, correction=None)
+        return response
 
     # ------------------------------------------------------------------
     # Agent checks (multi-agent pipelines)

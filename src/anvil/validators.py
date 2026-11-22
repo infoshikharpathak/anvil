@@ -303,7 +303,7 @@ async def _run_custom_classifier(classifier: Classifier, payload: Any) -> Inject
 # ---------------------------------------------------------------------------
 
 
-def validate_schema(data: dict | None, schema: ResponseSchema | None) -> SchemaResult:
+def validate_schema(data: dict | list | None, schema: ResponseSchema | None) -> SchemaResult:
     if schema is None or not schema.required_fields:
         return SchemaResult(valid=True)
     if data is None:

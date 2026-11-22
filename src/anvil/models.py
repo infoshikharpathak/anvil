@@ -37,7 +37,7 @@ class CorrectionInfo(BaseModel):
 
 class ToolResponse(BaseModel):
     success: bool
-    data: dict[str, Any] | None = None
+    data: dict[str, Any] | list[Any] | None = None
     tool_executed: bool = False
     correction: CorrectionInfo | None = None
 
