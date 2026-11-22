@@ -38,8 +38,9 @@ python -m evals.injection.run --model gpt-4o-mini --runs 3 --prompt tuned --set 
   (a note for agent replies; other directions unchanged), temperature 0 for
   output scans and the API default otherwise.
 
-`results/round1/` holds the first test-set run (14 cases); `results/*-test.*`
-the run on all 24.
+`results/round1/` holds the first test-set run (14 cases). `results/round4/`
+holds round 4's before/after runs on dev and test and a summary
+(`summary.md`); `results/tuned-*` and `baseline-*` are the latest runs.
 
 Each run writes `results/<prompt>-<set>.json` (per-run metrics, per-case
 verdicts and stages, unstable cases, tokens, cost) and a markdown summary.
