@@ -114,6 +114,7 @@ class PolicyEngine:
 
         # 4. sequence / prerequisite checks
         missing: list[str] = []
+        any_of: list[str] = []
         for rule in agent.sequences:
             if rule.before != tool_name:
                 continue
@@ -126,17 +127,19 @@ class PolicyEngine:
                 self.call_log.has_satisfied(session_id, agent_id, req, rule.match_fields, params)
                 for req in rule.requires_any
             ):
-                missing.append("one of " + " / ".join(rel(r) for r in rule.requires_any))
+                any_of += [rel(r) for r in rule.requires_any if rel(r) not in any_of]
 
-        if missing:
+        if missing or any_of:
+            needed = list(missing) + (["one of " + " / ".join(any_of)] if any_of else [])
             correction = CorrectionInfo(
                 violation=ViolationType.MISSING_PREREQUISITE,
                 message=(
-                    f"{', '.join(missing)} required before '{rel(tool_name)}'. "
-                    f"Please call {', '.join(missing)} first"
-                    + (f" with matching {self._match_field_names(agent, tool_name)}." if missing else ".")
+                    f"{', '.join(needed)} required before '{rel(tool_name)}'. "
+                    f"Please call {', '.join(needed)} first"
+                    f" with matching {self._match_field_names(agent, tool_name)}."
                 ),
                 required_actions=missing,
+                required_any=any_of,
                 call_history=self.call_log.history_names(session_id, agent_id),
             )
             enforce = agent.strictness == "strict"

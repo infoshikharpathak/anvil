@@ -33,6 +33,10 @@ class CorrectionInfo(BaseModel):
     violation: ViolationType
     message: str
     required_actions: list[str] = Field(default_factory=list)
+    # Alternatives: at least one of these must run first (requires_any).
+    # required_actions lists tools that must all run; this lists tools of
+    # which any one will do. Both hold tool names only.
+    required_any: list[str] = Field(default_factory=list)
     call_history: list[str] = Field(default_factory=list)
 
 

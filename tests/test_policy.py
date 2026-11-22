@@ -263,6 +263,7 @@ def test_requires_any_blocks_when_none_ran():
     d = engine.check_request("s1", "payment_agent", "send_payment", {})
     assert not d.allowed and d.correction.violation == ViolationType.MISSING_PREREQUISITE
     assert "one of verify_account / get_balance" in d.correction.message
+    assert d.correction.required_actions == [] and d.correction.required_any == ["verify_account", "get_balance"]
 
 
 @pytest.mark.parametrize("tool", ["verify_account", "get_balance"])
