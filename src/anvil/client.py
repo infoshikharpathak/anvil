@@ -319,7 +319,8 @@ class Anvil:
                 return ToolResponse(success=False, data=None, tool_executed=False, correction=correction)
 
         # --- Forward to the real tool --------------------------------------
-        trust = self.policy_engine.resolve_trust(agent_id, tool_name, settings.default_trust)
+        # The tool's own trust (or the settings default), unless the agent overrides it.
+        trust = self.policy_engine.resolve_trust(agent_id, tool_name, tool_cfg.trust or settings.default_trust)
         start = now_ms()
         try:
             raw_data = await self._call_upstream(tool_cfg, params)

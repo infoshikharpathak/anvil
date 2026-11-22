@@ -190,6 +190,9 @@ class PolicyEngine:
         return ", ".join(sorted(fields)) if fields else "parameters"
 
     def resolve_trust(self, agent_id: str, tool_name: str, default_trust: str) -> str:
+        """The agent's trust_override for this tool if it has one, otherwise
+        *default_trust* (the caller passes the tool's own trust, or the
+        settings default when the tool sets none)."""
         agent = self.agent_policy(agent_id)
         if agent and tool_name in agent.trust_overrides:
             return agent.trust_overrides[tool_name]

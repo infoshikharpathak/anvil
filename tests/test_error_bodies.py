@@ -22,8 +22,7 @@ RAW = {
     "policies": {"p": {"agents": {"food.agent": {
         "allowed_tools": ["pay", "status", "refund"],
         "sequences": [{"before": "refund", "requires": ["pay"], "match_fields": []}],
-        # Anvil resolves trust from the policy (bastion compiles each tool's
-        # trust into these overrides); unlisted tools use default_trust.
+        # Redundant with the tool's own trust: kept to show overrides still apply.
         "trust_overrides": {"status": "trusted"},
     }}}},
     "settings": {"injection_scanning": True},

@@ -90,7 +90,9 @@ class ToolConfig(BaseModel):
     path: str | None = None
     method: HttpMethod = "POST"
     description: str = ""
-    trust: Trust = "untrusted"
+    # The tool's own trust; an agent's trust_overrides take priority. None:
+    # use settings.default_trust.
+    trust: Trust | None = None
     timeout: float = 10.0
     injection_scanning: bool = True
     parameters: dict[str, Any] | None = None
