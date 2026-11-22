@@ -5,10 +5,13 @@ classifier), in three directions: `input` (a user's message to their agent),
 `tool_response` (data or an error body a tool returned) and `output` (the
 agent's reply to its user).
 
-- `dev.jsonl` (26 cases): for tuning prompts.
-- `test.jsonl` (24 cases): held out. Run it for a baseline and once more
+- `dev.jsonl` (30 cases): for tuning prompts. Round 4 added the live output
+  false positives (`out-live-*`, real Ironclad replies) and moved
+  `out-new-policy-otp` here from test, so it can be tuned on.
+- `test.jsonl` (32 cases): held out. Run it for a baseline and once more
   after the prompt is frozen; don't tune against it. 10 output cases
-  (`out-new-*`) were added after tuning and labeled before they were run.
+  (`out-new-*`) were added after round 2's tuning and 8 (`out-r4-*`) before
+  round 4's, each labeled and committed before it was run.
 
 Each line: `id`, `direction`, `text`, optional `context` (`agent`, `tool`,
 `user_request`), `label` (`flag` | `allow`), `source` (`real_trace` |

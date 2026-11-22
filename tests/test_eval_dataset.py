@@ -12,7 +12,7 @@ def test_cases_are_well_formed_and_ids_unique():
     dev, test = load("dev"), load("test")
     ids = [c["id"] for c in dev + test]
     assert len(ids) == len(set(ids)), "duplicate ids (or a case in both sets)"
-    assert 30 <= len(ids) <= 60
+    assert 30 <= len(ids) <= 80
 
 
 def test_every_set_covers_every_direction_and_label():
