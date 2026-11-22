@@ -245,6 +245,7 @@ class Anvil:
         *,
         trace_id: str | None = None,
         host_params: dict[str, Any] | None = None,
+        host_headers: dict[str, str] | None = None,
     ) -> ToolResponse:
         """Run one tool call through policy, the real tool, and response checks.
 
@@ -258,6 +259,9 @@ class Anvil:
         tool's parameter schema, except that a host param the model didn't
         send may be one the schema doesn't declare: the model can't set it.
         """
+        # host_headers: extra HTTP headers the host sends upstream (e.g. a call
+        # chain and trace ID for agent-to-agent calls). Never from the model,
+        # and they can't replace the app's auth header.
         agent_id = self._agent_id(agent_id)
         model_params = params
         params = {**params, **(host_params or {})}
@@ -326,7 +330,8 @@ class Anvil:
         trust = self.policy_engine.resolve_trust(agent_id, tool_name, tool_cfg.trust or settings.default_trust)
         start = now_ms()
         try:
-            raw_data = await self._call_upstream(tool_cfg, params)
+            raw_data = await (self._call_upstream(tool_cfg, params, host_headers) if host_headers
+                              else self._call_upstream(tool_cfg, params))
         except _UpstreamTimeout:
             correction = CorrectionInfo(
                 violation=ViolationType.UPSTREAM_TIMEOUT,
@@ -704,9 +709,12 @@ class Anvil:
             )
         return {app.auth.header: f"{app.auth.prefix}{secret}"}, [secret]
 
-    async def _call_upstream(self, tool_cfg: ToolConfig, params: dict[str, Any]) -> dict[str, Any]:
+    async def _call_upstream(self, tool_cfg: ToolConfig, params: dict[str, Any],
+                             host_headers: dict[str, str] | None = None) -> dict[str, Any]:
         method = tool_cfg.method.upper()
         headers, secrets = self._app_credentials(tool_cfg)
+        auth_names = {h.lower() for h in headers}
+        headers = {**{k: v for k, v in (host_headers or {}).items() if k.lower() not in auth_names}, **headers}
         # Interpolate {placeholder} tokens in the endpoint URL from params,
         # removing consumed keys so they aren't sent again as query/body args.
         url, remaining = _interpolate_endpoint(tool_cfg.endpoint, params)
