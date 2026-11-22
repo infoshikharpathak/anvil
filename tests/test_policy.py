@@ -240,3 +240,63 @@ def test_config_rejects_policy_tool_not_in_tools_section():
 def test_valid_config_loads_without_error():
     config = load_config_dict(BASE_CONFIG)
     assert "strict-payments" in config.policies
+
+
+# ── requires_any: at least one of several prerequisites ────────────────────
+
+ANY_CONFIG = {
+    "tools": BASE_CONFIG["tools"],
+    "policies": {"strict-payments": {"agents": {"payment_agent": {
+        "allowed_tools": ["verify_account", "get_balance", "send_payment"],
+        "sequences": [{"before": "send_payment", "requires_any": ["verify_account", "get_balance"]}],
+        "strictness": "strict",
+    }}}},
+}
+
+
+def _ran(call_log, tool):
+    call_log.record("s1", RecordedCall(tool=tool, agent="payment_agent", params={}, result=CallResult.SUCCESS))
+
+
+def test_requires_any_blocks_when_none_ran():
+    engine, _ = make_engine(ANY_CONFIG)
+    d = engine.check_request("s1", "payment_agent", "send_payment", {})
+    assert not d.allowed and d.correction.violation == ViolationType.MISSING_PREREQUISITE
+    assert "one of verify_account / get_balance" in d.correction.message
+
+
+@pytest.mark.parametrize("tool", ["verify_account", "get_balance"])
+def test_requires_any_allows_after_either(tool):
+    engine, call_log = make_engine(ANY_CONFIG)
+    _ran(call_log, tool)
+    assert engine.check_request("s1", "payment_agent", "send_payment", {}).allowed
+
+
+def test_requires_and_requires_any_together():
+    cfg = {**ANY_CONFIG, "policies": {"strict-payments": {"agents": {"payment_agent": {
+        **ANY_CONFIG["policies"]["strict-payments"]["agents"]["payment_agent"],
+        "sequences": [{"before": "send_payment", "requires": ["verify_account"], "requires_any": ["get_balance"]}],
+    }}}}}
+    engine, call_log = make_engine(cfg)
+    _ran(call_log, "verify_account")
+    assert not engine.check_request("s1", "payment_agent", "send_payment", {}).allowed
+    _ran(call_log, "get_balance")
+    assert engine.check_request("s1", "payment_agent", "send_payment", {}).allowed
+
+
+def test_a_rule_needs_some_prerequisite():
+    cfg = {**ANY_CONFIG, "policies": {"strict-payments": {"agents": {"payment_agent": {
+        **ANY_CONFIG["policies"]["strict-payments"]["agents"]["payment_agent"],
+        "sequences": [{"before": "send_payment"}],
+    }}}}}
+    with pytest.raises((ConfigError, ValueError)):
+        load_config_dict(cfg)
+
+
+def test_requires_any_tools_must_be_allowed():
+    cfg = {**ANY_CONFIG, "policies": {"strict-payments": {"agents": {"payment_agent": {
+        **ANY_CONFIG["policies"]["strict-payments"]["agents"]["payment_agent"],
+        "sequences": [{"before": "send_payment", "requires_any": ["ghost_tool"]}],
+    }}}}}
+    with pytest.raises(ConfigError):
+        load_config_dict(cfg)

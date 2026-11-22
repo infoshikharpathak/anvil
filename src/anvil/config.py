@@ -123,7 +123,7 @@ def validate_config(config: AnvilConfig) -> None:
                 elif rule.before not in allowed:
                     errors.append(f"{ctx}: sequence 'before={rule.before}' not in allowed_tools")
 
-                for req in rule.requires:
+                for req in [*rule.requires, *rule.requires_any]:
                     if req not in tool_names:
                         errors.append(f"{ctx}: sequence 'requires' references unregistered tool '{req}'")
                     elif req not in allowed:
@@ -155,7 +155,7 @@ def _find_cycle(sequences: list) -> list[str] | None:
     # Build edges: requires -> before  (i.e. requires must happen first)
     graph: dict[str, set[str]] = {}
     for rule in sequences:
-        graph.setdefault(rule.before, set()).update(rule.requires)
+        graph.setdefault(rule.before, set()).update([*rule.requires, *rule.requires_any])
 
     WHITE, GRAY, BLACK = 0, 1, 2
     color: dict[str, int] = {}

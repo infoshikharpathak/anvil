@@ -35,6 +35,7 @@ def resolve_agent_policy(agent_id: str, agent: AgentPolicy) -> AgentPolicy:
                 SequenceRule(
                     before=resolve(r.before, app),
                     requires=[resolve(q, app) for q in r.requires],
+                    requires_any=[resolve(q, app) for q in r.requires_any],
                     match_fields=list(r.match_fields),
                 )
                 for r in agent.sequences
@@ -121,6 +122,11 @@ class PolicyEngine:
                     session_id, agent_id, req, rule.match_fields, params
                 ):
                     missing.append(rel(req))
+            if rule.requires_any and not any(
+                self.call_log.has_satisfied(session_id, agent_id, req, rule.match_fields, params)
+                for req in rule.requires_any
+            ):
+                missing.append("one of " + " / ".join(rel(r) for r in rule.requires_any))
 
         if missing:
             correction = CorrectionInfo(

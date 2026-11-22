@@ -165,9 +165,19 @@ class Grant(BaseModel):
 
 
 class SequenceRule(BaseModel):
+    """*before* may run only after every tool in *requires* (all of) and at
+    least one tool in *requires_any* (any of) ran earlier in the session."""
+
     before: str
-    requires: list[str]
+    requires: list[str] = Field(default_factory=list)
+    requires_any: list[str] = Field(default_factory=list)
     match_fields: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _needs_a_prerequisite(self) -> SequenceRule:
+        if not self.requires and not self.requires_any:
+            raise ValueError(f"sequence rule for '{self.before}' needs 'requires' or 'requires_any'")
+        return self
 
 
 class AgentPolicy(BaseModel):

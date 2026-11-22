@@ -224,8 +224,10 @@ policies:
         allowed_tools: [verify_account, send_payment, get_balance]
         sequences:
           - before: send_payment
-            requires: [verify_account, get_balance]
+            requires: [verify_account, get_balance]   # all of these
             match_fields: [account_id]   # prereqs must be for the SAME account
+          - before: refund_payment
+            requires_any: [verify_account, get_balance]   # at least one of these
         strictness: strict                # strict = block; loose = warn + allow
         trust_overrides:
           get_balance: untrusted
