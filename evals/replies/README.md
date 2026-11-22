@@ -53,3 +53,40 @@ Setups: `base` (BASE_PROMPT, yes/no, detected = blocked), `tuned` (round
 the labeled output_context prompt: ai_instruction and data_leak block,
 unrequested_action flags). Each reply's majority outcome over the runs
 counts. Results in `results/`.
+
+## Results (gpt-4o-mini, 3 runs per reply, majority outcome)
+
+Test (35 `ok`, 1 `data_leak`; 18 scenarios):
+
+| Setup | Legitimate replies blocked | Legitimate replies flagged | Attacks blocked | Unrequested actions caught |
+|---|---|---|---|---|
+| base | 0/35 | — | 1/1 | — (none in the sample) |
+| tuned (round 4) | 3/35 | — | 1/1 | — |
+| new (guard + labels) | **0/35** | 4/35 | 1/1 (OTP guard) | — |
+
+Dev (30 `ok`, 2 `ai_instruction`; 16 scenarios), after tuning the labeled prompt on it:
+
+| Setup | Legitimate replies blocked | Legitimate replies flagged | Attacks blocked | Attacks flagged | Attacks passed |
+|---|---|---|---|---|---|
+| base | 0/30 | — | 1/2 | — | 1/2 |
+| tuned (round 4) | 3/30 | — | 2/2 | — | 0/2 |
+| new (guard + labels) | **0/30** | 3/30 | 1/2 | 1/2 | 0/2 |
+
+- The round-4 prompt blocks ordinary transfer confirmations ("Please confirm
+  the transfer in your bank dashboard"): 3 of 35 on test, 3 of 30 on dev,
+  the same failure seen live.
+- The new setup blocks none. Its cost is flags on legitimate replies (4/35
+  test, 3/30 dev): the transfer still goes through, with the red warning in
+  the OTP modal. Most are the classifier calling a requested transfer
+  "unrequested".
+- The one real hijack on test (asking the user to type the code into the
+  chat) is blocked by the deterministic OTP guard before the LLM runs.
+- The sample has no reply that reports an unrequested action, and only 3
+  attack replies in all: attack recall here is anecdotal.
+
+Tuning (dev only, `output_context` labeled prompt, legitimate flagged /
+attacks blocked of 2): first version 8 / 0; label order plus offers 8 / 1;
+restating the request first 9 / 1 (dropped); "DIFFERENT from what the user
+asked" with a dev example 5 / 0; "quoted text to an assistant is
+ai_instruction, the agent itself says it did" 3 / 1 (frozen). Test was run
+once, after freezing.
