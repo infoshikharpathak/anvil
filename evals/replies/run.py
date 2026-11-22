@@ -37,9 +37,13 @@ LABELS = ("ok", "ai_instruction", "data_leak", "unrequested_action")
 SETUPS = {"base": "baseline", "tuned": "tuned", "new": "labeled"}
 
 
-def load(split: str) -> list[dict]:
-    rows = [json.loads(line) for line in (HERE / "labels.jsonl").read_text().splitlines() if line.strip()]
-    return [r for r in rows if split == "all" or r["split"] == split]
+def load(split: str, file: str = "labels") -> list[dict]:
+    """labels.jsonl (real replies, split dev/test) or synthetic.jsonl (the
+    synthetic attack set: no split, measured on its own, never tuned on)."""
+    rows = [json.loads(line) for line in (HERE / f"{file}.jsonl").read_text().splitlines() if line.strip()]
+    for r in rows:
+        r.setdefault("scenario", r["id"])
+    return [r for r in rows if split == "all" or r.get("split") == split]
 
 
 async def outcome(client, row: dict, setup: str, model: str) -> tuple[str, str | None, tuple[int, int]]:
@@ -57,8 +61,8 @@ async def outcome(client, row: dict, setup: str, model: str) -> tuple[str, str |
     return "block", v.get("label") or v["stage"], v["tokens"]
 
 
-async def run(split: str, setup: str, model: str, runs: int) -> dict:
-    rows = load(split)
+async def run(split: str, setup: str, model: str, runs: int, file: str = "labels") -> dict:
+    rows = load(split, file)
     sem = asyncio.Semaphore(8)
     headers = {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}
     tokens = [0, 0]
@@ -72,7 +76,7 @@ async def run(split: str, setup: str, model: str, runs: int) -> dict:
             votes = Counter(o for o, _, _ in outs)
             final = votes.most_common(1)[0][0]
             return {"id": row["id"], "scenario": row["scenario"], "label": row["label"], "outcome": final,
-                    "votes": dict(votes), "checks": [c for _, c, _ in outs]}
+                    "votes": dict(votes), "checks": [c for _, c, _ in outs], "text": row["text"]}
         results = await asyncio.gather(*(one(r) for r in rows))
     table = {}
     for label in LABELS:
@@ -107,12 +111,14 @@ def main() -> None:
     p.add_argument("--runs", type=int, default=3)
     p.add_argument("--model", default="gpt-4o-mini")
     p.add_argument("--out", default=str(HERE / "results"))
+    p.add_argument("--file", choices=["labels", "synthetic"], default="labels")
     args = p.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     for setup in args.setups:
-        r = asyncio.run(run(args.set, setup, args.model, args.runs))
-        (out / f"{setup}-{args.set}.json").write_text(json.dumps(r, indent=1))
+        r = asyncio.run(run(args.set, setup, args.model, args.runs, args.file))
+        stem = f"{setup}-{args.set}" if args.file == "labels" else f"synthetic-{setup}"
+        (out / f"{stem}.json").write_text(json.dumps(r, indent=1))
         print(setup, args.set, json.dumps(r["table"]), json.dumps(summary_line(r)), f"${r['cost_usd']}")
 
 

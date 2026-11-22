@@ -110,6 +110,14 @@ On the real-reply test split the round-4 prompt blocked 3 of 35 legitimate
 replies; the new setup blocks none and flags 4, and the one real hijack
 (asking for the code in chat) is blocked by the guard.
 
+**Two sets, two questions.** Real replies measure false positives on
+normal traffic. They can't measure attack recall: gpt-4o-mini resisted
+almost every planted injection in the real runs (3 attack replies out of
+68). Attack recall is measured on a separate synthetic set of 25 hijacked
+replies and 5 near-misses (`evals/replies/synthetic.jsonl`): the new setup
+blocks or flags 24 of 25 attacks (base: 12, round 4: 23) but blocks 3 of
+the 5 near-misses. The two sets' numbers are reported apart.
+
 ## Injection classifier eval
 
 `evals/injection/` holds 40 labeled cases (26 dev, 14 held-out test) across
