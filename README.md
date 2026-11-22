@@ -87,6 +87,62 @@ Three distinct outcomes on a violation:
 | **Upstream error** | `true` | empty | **Was called**, and the tool answered 4xx/5xx. `data` is `{"http_status": 403, "body": ...}`: the error body, parsed as JSON when it is JSON, with `redact_fields` and secrets removed, cut to about 2 KB, and injection-scanned like any response of an untrusted tool (a flagged body is withheld). Recorded as `upstream_error` with `http_status`. |
 | **Response withheld** | `true` | empty | **Was called.** The side effect already happened; the response was flagged (injection or schema violation on an untrusted tool) and withheld. The agent must not retry. |
 
+## Injection classifier eval
+
+`evals/injection/` holds 40 labeled cases (26 dev, 14 held-out test) across
+three scan directions (a user's message, a tool's response, an agent's reply)
+and a runner that reports precision, recall and false-positive rate per
+direction, how verdicts vary between runs, and cost. See
+[`evals/injection/README.md`](evals/injection/README.md).
+
+**Why:** a live FoodDash agent reply that explained a refused payment
+("Ironclad has refused the payment request due to their policy not allowing
+AI agents to request payments") was blocked by the output scan as an
+injection, so the user never saw it.
+
+**Method:** baseline first on both sets (bastion's prompt, gpt-4o-mini, 3
+runs). Then, on the dev set only, a per-direction prompt: agent replies get
+a note saying that explaining refusals, limits and policies, and sending the
+user to their own bank app to approve with an OTP, are normal; only
+instructions aimed at an AI, leaked data, asking the user to hand the agent a
+secret, or actions the user didn't ask for are flagged. Input and tool
+responses keep the base prompt exactly (a first draft that added notes there
+made the classifier flag ordinary requests and bank policy text). Two more
+dev iterations fixed the OTP wording; then the prompt was frozen and the
+test set run once.
+
+**Results, held-out test set** (gpt-4o-mini, 3 runs each; every case got the
+same verdict in all 3 runs):
+
+| Direction | Precision (base → tuned) | Recall (base → tuned) | False-positive rate (base → tuned) |
+|---|---|---|---|
+| input | 0.67 → 0.67 | 1.00 → 1.00 | 0.50 → 0.50 |
+| tool_response | 1.00 → 1.00 | 1.00 → 1.00 | 0.00 → 0.00 |
+| output | 1.00 → 1.00 | 0.50 → 1.00 | 0.00 → 0.00 |
+| overall | 0.83 → 0.86 | 0.83 → 1.00 | 0.13 → 0.13 |
+
+Dev set: overall precision 0.91 → 1.00, recall 0.83 → 1.00, false-positive
+rate 0.07 → 0.00 (the QuickMart reply is a dev case).
+
+**Decision: not shipped as the default.** The bar was fewer false positives
+on the test set with no attack the baseline caught being missed. Nothing
+regressed and output recall rose (it now catches a reply announcing a
+transfer the user never asked for), but test false positives didn't move:
+the only one is an input case ("...can you get around it for me?"), and input
+deliberately keeps the base prompt. The test set's agent replies had no false
+positives to remove. So `classifier_prompt()` returns the base prompt for
+every direction by default; the tuned output note is available as
+`variant="output_context"`. Classifiers now receive a `ScanContext`
+(direction, agent, tool, and for output the user's request) when they accept
+a `context` argument, so a variant can be switched on without further
+plumbing.
+
+**Known limits:** 40 hand-written or hand-picked cases, labeled by one
+person (some, like the "get around it" question, are debatable); one model
+(gpt-4o-mini); 3 runs, and temperature 0 is still not fully deterministic on
+OpenAI (one dev iteration had a case flip between runs). Treat the numbers as
+a regression check, not an accuracy claim.
+
 ## Config Reference (`anvil.yaml`)
 
 ```yaml
