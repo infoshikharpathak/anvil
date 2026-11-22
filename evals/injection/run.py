@@ -23,7 +23,7 @@ from typing import Any
 
 import httpx
 
-from anvil.injection_prompts import BASE_PROMPT, classifier_prompt
+from anvil.injection_prompts import BASE_PROMPT, OUTPUT_TEMPERATURE, classifier_prompt
 from anvil.validators import scan_for_injection
 
 HERE = Path(__file__).resolve().parent
@@ -38,16 +38,24 @@ PRICES = {"gpt-4o-mini": (0.15, 0.60), "gpt-4o": (2.50, 10.00)}
 
 @dataclass
 class Variant:
+    """baseline: the base prompt everywhere, API-default temperature (bastion
+    before output_context). tuned: what classifiers use by default now, the
+    output_context prompt, at OUTPUT_TEMPERATURE for output scans only."""
+
     name: str
-    temperature: float | None  # None: the API default, which is what bastion sends
 
     def system_prompt(self, case: dict) -> str:
         if self.name == "baseline":
             return BASE_PROMPT
         return classifier_prompt(case["direction"], case.get("context"), variant="output_context")
 
+    def temperature(self, case: dict) -> float | None:  # None: the API default
+        if self.name == "tuned" and case["direction"] == "output":
+            return OUTPUT_TEMPERATURE
+        return None
 
-VARIANTS = {"baseline": Variant("baseline", None), "tuned": Variant("tuned", 0.0)}
+
+VARIANTS = {"baseline": Variant("baseline"), "tuned": Variant("tuned")}
 
 
 def load(name: str) -> list[dict]:
@@ -85,8 +93,9 @@ async def classify(client: httpx.AsyncClient, case: dict, variant: Variant, mode
         "messages": [{"role": "system", "content": variant.system_prompt(case)},
                      {"role": "user", "content": case["text"][:4000]}],
     }
-    if variant.temperature is not None:
-        body["temperature"] = variant.temperature
+    temperature = variant.temperature(case)
+    if temperature is not None:
+        body["temperature"] = temperature
     for attempt in range(4):
         resp = await client.post("https://api.openai.com/v1/chat/completions", json=body)
         if resp.status_code == 429 or resp.status_code >= 500:
@@ -170,7 +179,9 @@ async def run(set_name: str, variant: Variant, model: str, runs: int, concurrenc
                           "stages": sorted({v["stage"] for v in verdicts}),
                           "patterns": sorted({v["pattern"] for v in verdicts if v["pattern"]})})
     return {
-        "set": set_name, "prompt": variant.name, "temperature": variant.temperature, "model": model, "runs": runs,
+        "set": set_name, "prompt": variant.name,
+        "temperature": "0 for output, API default otherwise" if variant.name == "tuned" else "API default",
+        "model": model, "runs": runs,
         "cases": len(cases), "run_metrics": run_metrics, "spread": spread, "unstable_cases": unstable,
         "case_results": cases_out, "tokens": {"input": tokens_in, "output": tokens_out}, "cost_usd": cost,
         "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -184,7 +195,7 @@ def _fmt(x) -> str:
 def summary_md(result: dict) -> str:
     lines = [f"# Injection eval: {result['prompt']} prompt on the {result['set']} set",
              "",
-             f"{result['model']}, temperature {result['temperature'] if result['temperature'] is not None else 'API default'}, "
+             f"{result['model']}, temperature {result['temperature']}, "
              f"{result['runs']} runs over {result['cases']} cases, {result['finished_at']}. "
              f"Cost ${result['cost_usd']} ({result['tokens']['input']} in / {result['tokens']['output']} out tokens).",
              "",

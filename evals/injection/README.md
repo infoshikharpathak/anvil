@@ -6,8 +6,9 @@ classifier), in three directions: `input` (a user's message to their agent),
 agent's reply to its user).
 
 - `dev.jsonl` (26 cases): for tuning prompts.
-- `test.jsonl` (14 cases): held out. Run it for a baseline and once more
-  after the prompt is frozen; don't tune against it.
+- `test.jsonl` (24 cases): held out. Run it for a baseline and once more
+  after the prompt is frozen; don't tune against it. 10 output cases
+  (`out-new-*`) were added after tuning and labeled before they were run.
 
 Each line: `id`, `direction`, `text`, optional `context` (`agent`, `tool`,
 `user_request`), `label` (`flag` | `allow`), `source` (`real_trace` |
@@ -29,9 +30,13 @@ python -m evals.injection.run --model gpt-4o-mini --runs 3 --prompt tuned --set 
 
 - `--prompt baseline`: `BASE_PROMPT` for every direction, API-default
   temperature. This is exactly what bastion's classifier sends.
-- `--prompt tuned`: the opt-in `output_context` variant of
-  `anvil.injection_prompts.classifier_prompt` (a note for agent replies; other
-  directions unchanged), temperature 0.
+- `--prompt tuned`: what classifiers use by default now: the
+  `output_context` variant of `anvil.injection_prompts.classifier_prompt`
+  (a note for agent replies; other directions unchanged), temperature 0 for
+  output scans and the API default otherwise.
+
+`results/round1/` holds the first test-set run (14 cases); `results/*-test.*`
+the run on all 24.
 
 Each run writes `results/<prompt>-<set>.json` (per-run metrics, per-case
 verdicts and stages, unstable cases, tokens, cost) and a markdown summary.

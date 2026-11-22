@@ -8,9 +8,15 @@ from anvil.injection_prompts import BASE_PROMPT, classifier_prompt
 from anvil.validators import InjectionResult, ScanContext
 
 
-def test_default_is_the_base_prompt_for_every_direction():
-    for direction in (None, "input", "tool_request", "tool_response", "output", "handoff"):
+def test_default_gives_only_output_the_reply_note():
+    for direction in (None, "input", "tool_request", "tool_response", "handoff"):
         assert classifier_prompt(direction, {"agent": "a", "user_request": "hi"}) == BASE_PROMPT
+    assert classifier_prompt("output") == classifier_prompt("output", variant="output_context") != BASE_PROMPT
+
+
+def test_base_variant_is_the_base_prompt_for_every_direction():
+    for direction in (None, "input", "tool_request", "tool_response", "output", "handoff"):
+        assert classifier_prompt(direction, {"agent": "a"}, variant="base") == BASE_PROMPT
 
 
 def test_output_context_variant_only_changes_output():
