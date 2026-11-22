@@ -87,6 +87,29 @@ Three distinct outcomes on a violation:
 | **Upstream error** | `true` | empty | **Was called**, and the tool answered 4xx/5xx. `data` is `{"http_status": 403, "body": ...}`: the error body, parsed as JSON when it is JSON, with `redact_fields` and secrets removed, cut to about 2 KB, and injection-scanned like any response of an untrusted tool (a flagged body is withheld). Recorded as `upstream_error` with `http_status`. |
 | **Response withheld** | `true` | empty | **Was called.** The side effect already happened; the response was flagged (injection or schema violation on an untrusted tool) and withheld. The agent must not retry. |
 
+## Output scan: evaluate on real replies
+
+**Lesson.** Round 4's output prompt scored **0% false positives** on the
+hand-written test set and still blocked **4 of 5** genuine transfer replies
+live: real agents word things ("Please confirm the transfer using the OTP
+sent to your Ironclad app") in ways hand-written cases don't. Output-scan
+evals now use **sampled real replies**: the real agents run on scripted
+scenarios (transfers, "can I...?", refusals, policy answers, OTP questions,
+planted-injection attacks), each reply is labeled and the set is split by
+scenario. See [`evals/replies/README.md`](evals/replies/README.md).
+
+**What the output check does now** (`check_agent_output`):
+1. `anvil.output_guard`, no LLM: blocks a standalone 6-digit code, or a
+   reply asking the user to tell, type, paste or send a code to the assistant.
+2. Regex, then the labeled classifier (`output_context`): `ai_instruction`
+   and `data_leak` block; `unrequested_action` is delivered but
+   `flagged=True`, so the host flags what the turn created (the OTP still
+   protects the money); `ok` passes.
+
+On the real-reply test split the round-4 prompt blocked 3 of 35 legitimate
+replies; the new setup blocks none and flags 4, and the one real hijack
+(asking for the code in chat) is blocked by the guard.
+
 ## Injection classifier eval
 
 `evals/injection/` holds 40 labeled cases (26 dev, 14 held-out test) across
