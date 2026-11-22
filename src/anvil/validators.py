@@ -325,3 +325,100 @@ def _flatten_to_text(payload: Any) -> str:
     if isinstance(payload, (list, tuple)):
         return " ".join(_flatten_to_text(v) for v in payload)
     return str(payload)
+
+
+# ---------------------------------------------------------------------------
+# Tool parameter validation (against the tool's declared JSON schema)
+# ---------------------------------------------------------------------------
+
+# The subset of JSON Schema checked: type, required, properties,
+# additionalProperties, enum, items, minLength/maxLength, minimum/maximum.
+# Other keywords are ignored. Objects reject undeclared properties unless the
+# schema says additionalProperties: true (or gives it a schema).
+
+_JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,),
+    "integer": (int,),
+    "number": (int, float),
+    "boolean": (bool,),
+    "object": (dict,),
+    "array": (list, tuple),
+    "null": (type(None),),
+}
+
+
+def _type_ok(value: Any, expected: str) -> bool:
+    py = _JSON_TYPES.get(expected)
+    if py is None:
+        return True  # unknown type name: don't block on it
+    if isinstance(value, bool) and expected in ("integer", "number"):
+        return False  # bool is an int in Python, not in JSON
+    if expected == "integer" and isinstance(value, float):
+        return value.is_integer()
+    return isinstance(value, py)
+
+
+def _type_name(value: Any) -> str:
+    for name in ("null", "boolean", "integer", "number", "string", "array", "object"):
+        if _type_ok(value, name):
+            return name
+    return type(value).__name__
+
+
+def validate_params(
+    params: dict[str, Any], schema: dict[str, Any], *, host_keys: frozenset[str] = frozenset()
+) -> list[str]:
+    """Problems with *params* against *schema*, as short messages naming the
+    field ("items[0].quantity: expected integer, got string"). Empty if valid.
+
+    *host_keys* are top-level keys the host filled in (not the model): they
+    may be undeclared, and are not checked against the schema."""
+    errors: list[str] = []
+    _check(params, schema, "", errors, host_keys)
+    return errors
+
+
+def _check(value: Any, schema: dict[str, Any], path: str, errors: list[str], host_keys: frozenset[str]) -> None:
+    where = path or "params"
+    expected = schema.get("type")
+    if expected is not None:
+        types = expected if isinstance(expected, list) else [expected]
+        if not any(_type_ok(value, t) for t in types):
+            errors.append(f"{where}: expected {' or '.join(types)}, got {_type_name(value)}")
+            return
+    if "enum" in schema and value not in schema["enum"]:
+        allowed = ", ".join(repr(v) for v in schema["enum"])
+        errors.append(f"{where}: {value!r} is not one of {allowed}")
+        return
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            errors.append(f"{where}: shorter than {schema['minLength']} characters")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errors.append(f"{where}: longer than {schema['maxLength']} characters")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            errors.append(f"{where}: must be at least {schema['minimum']}")
+        if "maximum" in schema and value > schema["maximum"]:
+            errors.append(f"{where}: must be at most {schema['maximum']}")
+    if isinstance(value, dict) and (expected == "object" or "properties" in schema):
+        props: dict[str, Any] = schema.get("properties") or {}
+        for name in schema.get("required") or []:
+            if name not in value:
+                errors.append(f"{_join(path, name)}: required field is missing")
+        extra = schema.get("additionalProperties", False)
+        for name, sub in value.items():
+            if not path and name in host_keys:
+                continue
+            if name in props:
+                _check(sub, props[name], _join(path, name), errors, frozenset())
+            elif extra is False:
+                errors.append(f"{_join(path, name)}: unknown field (not in the tool's schema)")
+            elif isinstance(extra, dict):
+                _check(sub, extra, _join(path, name), errors, frozenset())
+    if isinstance(value, (list, tuple)) and isinstance(schema.get("items"), dict):
+        for i, item in enumerate(value):
+            _check(item, schema["items"], f"{where}[{i}]", errors, frozenset())
+
+
+def _join(path: str, name: str) -> str:
+    return f"{path}.{name}" if path else name

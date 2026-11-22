@@ -9,6 +9,8 @@ exceptions never see the pipeline crash.
 from __future__ import annotations
 
 import functools
+import json
+import logging
 import os
 from typing import Any, Callable
 
@@ -30,11 +32,11 @@ from .models import (
     new_session_id,
     now_ms,
 )
-from .namespaces import DEFAULT_APP, app_of, canonical, resolve
+from .namespaces import DEFAULT_APP, app_of, canonical, relative, resolve
 from .policy import PolicyDecision, PolicyEngine
 from .registry_client import fetch_policy_bundle, registry_headers
 from .trace import TraceBuffer
-from .validators import Classifier, scan_for_injection_async, validate_schema
+from .validators import Classifier, scan_for_injection_async, validate_params, validate_schema
 
 
 class AnvilError(Exception):
@@ -239,14 +241,23 @@ class Anvil:
         params: dict[str, Any],
         *,
         trace_id: str | None = None,
+        host_params: dict[str, Any] | None = None,
     ) -> ToolResponse:
         """Run one tool call through policy, the real tool, and response checks.
 
         `trace_id` is an optional caller-supplied correlation id (e.g. from an
         orchestrator's request trace). It is stored on the recorded call, sent
         with the session trace, and included in audit log lines.
+
+        `params` are what the agent (the model) asked for. `host_params` are
+        values the host application fills in itself (a signed-in user's ID, a
+        fixed channel), merged over `params`. Both are checked against the
+        tool's parameter schema, except that a host param the model didn't
+        send may be one the schema doesn't declare: the model can't set it.
         """
         agent_id = self._agent_id(agent_id)
+        model_params = params
+        params = {**params, **(host_params or {})}
         bound = self._binding_violation(agent_id)
         if bound is not None:
             self._record(agent_id, canonical(tool_name), params, CallResult.BLOCKED, bound, trace_id=trace_id)
@@ -280,6 +291,13 @@ class Anvil:
                 trace_id=trace_id,
             )
 
+        # Parameters against the tool's declared schema. A hard block, like a
+        # disallowed tool: the call never runs and isn't a prerequisite.
+        invalid = self._param_violation(tool_cfg, agent_id, model_params, host_params or {}, params)
+        if invalid is not None:
+            self._record(agent_id, tool_name, params, CallResult.BLOCKED, invalid, trace_id=trace_id)
+            return ToolResponse(success=False, data=None, tool_executed=False, correction=invalid)
+
         # Request-path injection scan (on the outgoing params)
         settings = self.config.settings
         if settings.injection_scanning and tool_cfg.injection_scanning:
@@ -311,6 +329,8 @@ class Anvil:
             )
             self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction, trace_id=trace_id)
             return ToolResponse(success=False, data=None, tool_executed=False, correction=correction)
+        except _UpstreamHTTPError as e:
+            return await self._upstream_http_error(e, tool_cfg, agent_id, params, trust, now_ms() - start, trace_id)
         except _UpstreamError as e:
             correction = CorrectionInfo(
                 violation=ViolationType.UPSTREAM_ERROR,
@@ -393,6 +413,79 @@ class Anvil:
             return ToolResponse(success=False, data=None, tool_executed=True, correction=correction)
         self._record(agent_id, tool_name, params, CallResult.SUCCESS, None, latency_ms, trace_id=trace_id)
         return response
+
+    def _param_violation(
+        self,
+        tool_cfg: ToolConfig,
+        agent_id: str,
+        model_params: dict[str, Any],
+        host_params: dict[str, Any],
+        merged: dict[str, Any],
+    ) -> CorrectionInfo | None:
+        schema = tool_cfg.parameters
+        if schema is None:
+            if tool_cfg.name not in _UNCHECKED_TOOLS_WARNED:
+                _UNCHECKED_TOOLS_WARNED.add(tool_cfg.name)
+                log.warning("Tool %r declares no parameter schema: its params are not checked. "
+                            "Add 'parameters' to its config.", tool_cfg.name)
+            return None
+        exempt = frozenset(k for k in host_params if k not in model_params)
+        problems = validate_params(merged, schema, host_keys=exempt)
+        if not problems:
+            return None
+        name = relative(tool_cfg.name, app_of(agent_id))
+        shown = "; ".join(problems[:5]) + (f"; and {len(problems) - 5} more" if len(problems) > 5 else "")
+        return CorrectionInfo(
+            violation=ViolationType.INVALID_PARAMS,
+            message=f"Invalid parameters for '{name}': {shown}. Fix them and call it again.",
+            required_actions=[],
+            call_history=self.call_log.history_names(self.session_id, agent_id),
+        )
+
+    async def _upstream_http_error(
+        self,
+        err: "_UpstreamHTTPError",
+        tool_cfg: ToolConfig,
+        agent_id: str,
+        params: dict[str, Any],
+        trust: str,
+        latency_ms: float,
+        trace_id: str | None,
+    ) -> ToolResponse:
+        """The upstream answered 4xx/5xx. The agent gets the status and the
+        error body (already redacted and cut to size), scanned like any other
+        response. It never counts as a prerequisite."""
+        tool_name = tool_cfg.name
+        payload = {"http_status": err.status, "body": err.body}
+        settings = self.config.settings
+        if trust == "untrusted" and settings.injection_scanning and tool_cfg.injection_scanning:
+            scan = await scan_for_injection_async(payload, settings, classifier=self.classifier)
+            if scan.detected:
+                correction = CorrectionInfo(
+                    violation=ViolationType.INJECTION_DETECTED_RESPONSE,
+                    message=(
+                        f"'{tool_name}' failed upstream with HTTP {err.status}, and its error body was "
+                        f"withheld because suspicious instruction patterns ('{scan.matched_pattern}') were "
+                        f"detected. Not recorded as a prerequisite."
+                    ),
+                    required_actions=[],
+                    call_history=self.call_log.history_names(self.session_id, agent_id),
+                )
+                self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction, latency_ms,
+                             trace_id=trace_id, http_status=err.status)
+                return ToolResponse(success=False, data=None, tool_executed=True, correction=correction)
+        correction = CorrectionInfo(
+            violation=ViolationType.UPSTREAM_ERROR,
+            message=(
+                f"'{tool_name}' failed upstream with HTTP {err.status}; the response body is in data. "
+                f"Not recorded as a prerequisite."
+            ),
+            required_actions=[],
+            call_history=self.call_log.history_names(self.session_id, agent_id),
+        )
+        self._record(agent_id, tool_name, params, CallResult.BLOCKED, correction, latency_ms,
+                     trace_id=trace_id, http_status=err.status)
+        return ToolResponse(success=False, data=payload, tool_executed=True, correction=correction)
 
     # ------------------------------------------------------------------
     # Agent checks (multi-agent pipelines)
@@ -563,11 +656,14 @@ class Anvil:
                     resp = await client.request(method, url, params=remaining, headers=headers)
                 else:
                     resp = await client.request(method, url, json=remaining, headers=headers)
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    raise _UpstreamHTTPError(resp.status_code, _error_body(resp, tool_cfg, secrets))
                 # An upstream that echoes request headers must not hand the
                 # secret back to the agent, the trace, or the scanners.
                 data = _drop_fields(resp.json(), set(tool_cfg.redact_fields))
                 return _redact(data, secrets)
+        except _UpstreamHTTPError:
+            raise
         except httpx.TimeoutException as e:
             raise _UpstreamTimeout(_redact(str(e), secrets)) from None
         except httpx.HTTPError as e:
@@ -584,6 +680,7 @@ class Anvil:
         correction: CorrectionInfo | None,
         latency_ms: float | None = None,
         trace_id: str | None = None,
+        http_status: int | None = None,
     ) -> None:
         call = RecordedCall(
             tool=tool_name,
@@ -594,6 +691,7 @@ class Anvil:
             correction_message=correction.message if correction else None,
             latency_ms=latency_ms,
             trace_id=trace_id,
+            http_status=http_status,
         )
         self.call_log.record(self.session_id, call)
         log_call(
@@ -621,6 +719,7 @@ def _interpolate_endpoint(endpoint: str, params: dict[str, Any]) -> tuple[str, d
     removed from the params dict so they don't get sent again as query/body
     arguments."""
     import re
+    from urllib.parse import quote
 
     remaining = dict(params)
     used: set[str] = set()
@@ -629,7 +728,8 @@ def _interpolate_endpoint(endpoint: str, params: dict[str, Any]) -> tuple[str, d
         key = m.group(1)
         if key in remaining:
             used.add(key)
-            return str(remaining[key])
+            # Encoded, so a value can't add path segments ("../x") or a query.
+            return quote(str(remaining[key]), safe="")
         return m.group(0)  # leave unresolved placeholders as-is
 
     url = re.sub(r"\{(\w+)\}", _replace, endpoint)
@@ -673,6 +773,38 @@ class _UpstreamTimeout(Exception):
 
 class _UpstreamError(Exception):
     pass
+
+
+class _UpstreamHTTPError(Exception):
+    """The upstream answered with a 4xx/5xx status."""
+
+    def __init__(self, status: int, body: Any) -> None:
+        super().__init__(f"HTTP {status}")
+        self.status = status
+        self.body = body
+
+
+log = logging.getLogger("anvil")
+_UNCHECKED_TOOLS_WARNED: set[str] = set()
+
+# Error bodies handed to the agent are cut to about this many characters.
+ERROR_BODY_LIMIT = 2048
+
+
+def _error_body(resp: httpx.Response, tool_cfg: ToolConfig, secrets: list[str]) -> Any:
+    """An upstream error body as the agent may see it: parsed JSON when it is
+    JSON, redact_fields and secrets removed, and cut to ERROR_BODY_LIMIT."""
+    try:
+        body: Any = resp.json()
+    except ValueError:
+        body = resp.text
+    else:
+        body = _drop_fields(body, set(tool_cfg.redact_fields))
+    body = _redact(body, secrets)
+    text = body if isinstance(body, str) else json.dumps(body)
+    if len(text) <= ERROR_BODY_LIMIT:
+        return body
+    return text[:ERROR_BODY_LIMIT] + f"... [truncated, {len(text)} characters in all]"
 
 
 def _fetch_policy_bundle_sync(

@@ -21,6 +21,7 @@ class ViolationType(str, Enum):
     SCHEMA_VIOLATION = "schema_violation"
     UPSTREAM_ERROR = "upstream_error"
     UPSTREAM_TIMEOUT = "upstream_timeout"
+    INVALID_PARAMS = "invalid_params"
     DISALLOWED_DELEGATION = "disallowed_delegation"
     CROSS_APP_DENIED = "cross_app_denied"
     INJECTION_DETECTED_AGENT_INPUT = "injection_detected_agent_input"
@@ -291,6 +292,8 @@ class RecordedCall(BaseModel):
     correction_message: str | None = None
     latency_ms: float | None = None
     trace_id: str | None = None
+    # The upstream's HTTP status when it answered with an error (4xx/5xx).
+    http_status: int | None = None
     timestamp: str = Field(default_factory=lambda: _iso_now())
 
 
