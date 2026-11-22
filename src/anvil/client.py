@@ -36,7 +36,10 @@ from .namespaces import DEFAULT_APP, app_of, canonical, relative, resolve
 from .policy import PolicyDecision, PolicyEngine
 from .registry_client import fetch_policy_bundle, registry_headers
 from .trace import TraceBuffer
-from .validators import Classifier, ScanContext, scan_for_injection_async, validate_params, validate_schema
+from .output_guard import otp_guard
+from .validators import (
+    Classifier, ScanContext, _flatten_to_text, scan_for_injection_async, validate_params, validate_schema,
+)
 
 
 class AnvilError(Exception):
@@ -521,10 +524,56 @@ class Anvil:
         *user_request* (what the user asked this turn) helps an LLM classifier
         tell a reply that does what was asked from one pushing other actions."""
         agent_id = self._agent_id(agent_id)
-        return await self._check_agent_content(
-            agent_id, content, "agent_output", ViolationType.INJECTION_DETECTED_AGENT_OUTPUT,
-            f"Output from agent '{agent_id}'", trace_id,
-            ScanContext("output", agent=agent_id, user_request=user_request),
+        bound = self._binding_violation(agent_id)
+        decision = (
+            PolicyDecision(allowed=False, correction=bound)
+            if bound is not None
+            else self.policy_engine.check_agent_known(agent_id)
+        )
+        if not decision.allowed:
+            assert decision.correction is not None
+            self._record_check(agent_id, "agent_output", decision.correction, trace_id)
+            return AgentCheckResult(allowed=False, correction=decision.correction)
+        settings = self.config.settings
+        if not settings.injection_scanning:
+            self._record_check(agent_id, "agent_output", None, trace_id)
+            return AgentCheckResult(allowed=True)
+
+        label = f"Output from agent '{agent_id}'"
+        text = content if isinstance(content, str) else _flatten_to_text(content)
+        # 1. Deterministic OTP guard (no LLM): codes in the reply, or asking
+        #    the user to give one to the assistant. Always blocks.
+        guard = otp_guard(text)
+        if guard is not None:
+            correction = self._output_correction(agent_id, label, guard)
+            self._record_check(agent_id, "agent_output", correction, trace_id)
+            return AgentCheckResult(allowed=False, correction=correction, check="otp_guard", reason=guard)
+
+        # 2. Regex, then the classifier. A labeled verdict says block or flag.
+        scan = await scan_for_injection_async(
+            content, settings, classifier=self.classifier,
+            context=ScanContext("output", agent=agent_id, user_request=user_request),
+        )
+        if not scan.detected:
+            self._record_check(agent_id, "agent_output", None, trace_id)
+            return AgentCheckResult(allowed=True, check="classifier", label=scan.label or "ok")
+        check = scan.label or ("regex" if not (scan.matched_pattern or "").startswith("llm:") else "classifier")
+        if scan.action == "flag":
+            # Delivered: the host flags anything the turn created for the user.
+            self._record_check(agent_id, "agent_output", None, trace_id)
+            return AgentCheckResult(allowed=True, check=check, label=scan.label, flagged=True,
+                                    reason=scan.matched_pattern)
+        correction = self._output_correction(agent_id, label, scan.matched_pattern)
+        self._record_check(agent_id, "agent_output", correction, trace_id)
+        return AgentCheckResult(allowed=False, correction=correction, check=check, label=scan.label,
+                                reason=scan.matched_pattern)
+
+    def _output_correction(self, agent_id: str, label: str, pattern: str | None) -> CorrectionInfo:
+        return CorrectionInfo(
+            violation=ViolationType.INJECTION_DETECTED_AGENT_OUTPUT,
+            message=f"{label} contained suspicious instruction patterns ('{pattern}') and was blocked.",
+            required_actions=[],
+            call_history=self.call_log.history_names(self.session_id, agent_id),
         )
 
     async def check_handoff(

@@ -75,6 +75,11 @@ _LLM_SYSTEM_PROMPT = (
 class InjectionResult:
     detected: bool
     matched_pattern: str | None = None
+    # Output scans with the labeled prompt: the classifier's label (ok,
+    # ai_instruction, data_leak, unrequested_action) and what to do when
+    # detected: "block" (default) or "flag" (deliver, warn the user).
+    label: str | None = None
+    action: str = "block"
 
 
 @dataclass

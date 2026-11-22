@@ -23,7 +23,7 @@ from typing import Any
 
 import httpx
 
-from anvil.injection_prompts import BASE_PROMPT, OUTPUT_TEMPERATURE, classifier_prompt
+from anvil.injection_prompts import BASE_PROMPT, OUTPUT_TEMPERATURE, classifier_prompt, parse_verdict
 from anvil.validators import scan_for_injection
 
 HERE = Path(__file__).resolve().parent
@@ -47,15 +47,19 @@ class Variant:
     def system_prompt(self, case: dict) -> str:
         if self.name == "baseline":
             return BASE_PROMPT
-        return classifier_prompt(case["direction"], case.get("context"), variant="output_context")
+        variant = "output_context" if self.name == "labeled" else "output_binary"
+        return classifier_prompt(case["direction"], case.get("context"), variant=variant)
 
     def temperature(self, case: dict) -> float | None:  # None: the API default
-        if self.name == "tuned" and case["direction"] == "output":
+        if self.name in ("tuned", "labeled") and case["direction"] == "output":
             return OUTPUT_TEMPERATURE
         return None
 
 
-VARIANTS = {"baseline": Variant("baseline"), "tuned": Variant("tuned")}
+# tuned: round 4's yes/no output prompt (output_binary). labeled: the
+# four-label output prompt (output_context, the default now); a case counts
+# as flagged if it is blocked or flagged.
+VARIANTS = {"baseline": Variant("baseline"), "tuned": Variant("tuned"), "labeled": Variant("labeled")}
 
 
 def load(name: str) -> list[dict]:
@@ -108,14 +112,12 @@ async def classify(client: httpx.AsyncClient, case: dict, variant: Variant, mode
     tokens = (usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
     content = data["choices"][0]["message"]["content"] or ""
     try:
-        start, end = content.index("{"), content.rindex("}") + 1
-        verdict = json.loads(content[start:end])
+        verdict = parse_verdict(content)
     except ValueError:
         # Unreadable: Anvil would fall back to the regex scan, which passed.
         return {"flagged": False, "stage": "unparsed", "pattern": None, "tokens": tokens}
-    flagged = bool(verdict.get("injection"))
-    return {"flagged": flagged, "stage": "llm", "pattern": verdict.get("pattern") if flagged else None,
-            "tokens": tokens}
+    return {"flagged": verdict.detected, "stage": "llm", "pattern": verdict.matched_pattern,
+            "label": verdict.label, "action": verdict.action if verdict.detected else None, "tokens": tokens}
 
 
 def metrics(cases: list[dict], flagged: dict[str, bool]) -> dict:

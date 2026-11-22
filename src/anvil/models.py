@@ -54,6 +54,13 @@ class AgentCheckResult(BaseModel):
 
     allowed: bool
     correction: CorrectionInfo | None = None
+    # Output checks: which check decided (otp_guard, regex, or the classifier
+    # label such as ai_instruction), and whether the content was blocked or
+    # delivered but flagged (unrequested_action). flagged implies allowed.
+    check: str | None = None
+    label: str | None = None
+    flagged: bool = False
+    reason: str | None = None
 
 
 # --------------------------------------------------------------------------
