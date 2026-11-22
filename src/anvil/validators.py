@@ -87,7 +87,27 @@ class SchemaResult:
 # InjectionResult. When supplied to Anvil it replaces the built-in httpx
 # LLM scanner. Any exception or non-InjectionResult return falls back to the
 # regex scanner, so a broken classifier can never crash the pipeline.
-Classifier = Callable[[str], Awaitable[InjectionResult]]
+# A classifier that takes a `context` keyword also gets a ScanContext saying
+# where the text comes from (see anvil.injection_prompts).
+Classifier = Callable[..., Awaitable[InjectionResult]]
+
+
+@dataclass
+class ScanContext:
+    """Where a scanned text comes from.
+
+    direction: input (a user's message to an agent), tool_request (params
+    an agent sends to a tool), tool_response (what a tool returned, error
+    bodies included), output (an agent's reply to its user) or handoff.
+    """
+
+    direction: str
+    agent: str | None = None
+    tool: str | None = None
+    user_request: str | None = None  # for output: what the user asked this turn
+
+    def as_dict(self) -> dict[str, Any]:
+        return {k: v for k, v in self.__dict__.items() if v is not None and k != "direction"}
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +227,7 @@ async def scan_for_injection_async(
     *,
     enabled: bool = True,
     classifier: Classifier | None = None,
+    context: ScanContext | None = None,
 ) -> InjectionResult:
     """Async injection scan dispatching to regex, LLM, or hybrid.
 
@@ -232,7 +253,7 @@ async def scan_for_injection_async(
             if regex_result.detected:
                 return regex_result
         if mode in ("llm", "hybrid"):
-            return await _run_custom_classifier(classifier, payload)
+            return await _run_custom_classifier(classifier, payload, context)
 
     # --- regex (default) ---------------------------------------------------
     if mode == "regex":
@@ -282,10 +303,25 @@ async def scan_for_injection_async(
     return scan_for_injection(payload, enabled=enabled)
 
 
-async def _run_custom_classifier(classifier: Classifier, payload: Any) -> InjectionResult:
+def _takes_context(classifier: Classifier) -> bool:
+    import inspect
+
+    try:
+        params = inspect.signature(classifier).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(p.name == "context" or p.kind is inspect.Parameter.VAR_KEYWORD for p in params)
+
+
+async def _run_custom_classifier(
+    classifier: Classifier, payload: Any, context: ScanContext | None = None
+) -> InjectionResult:
     text = _flatten_to_text(payload)
     try:
-        result = await classifier(text)
+        if context is not None and _takes_context(classifier):
+            result = await classifier(text, context=context)
+        else:
+            result = await classifier(text)
     except Exception as exc:  # noqa: BLE001 — a user classifier must never crash the pipeline
         logger.warning("Custom injection classifier raised (%s), falling back to regex", exc)
         return scan_for_injection(payload)

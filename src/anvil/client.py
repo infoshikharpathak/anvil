@@ -36,7 +36,7 @@ from .namespaces import DEFAULT_APP, app_of, canonical, relative, resolve
 from .policy import PolicyDecision, PolicyEngine
 from .registry_client import fetch_policy_bundle, registry_headers
 from .trace import TraceBuffer
-from .validators import Classifier, scan_for_injection_async, validate_params, validate_schema
+from .validators import Classifier, ScanContext, scan_for_injection_async, validate_params, validate_schema
 
 
 class AnvilError(Exception):
@@ -301,7 +301,10 @@ class Anvil:
         # Request-path injection scan (on the outgoing params)
         settings = self.config.settings
         if settings.injection_scanning and tool_cfg.injection_scanning:
-            req_scan = await scan_for_injection_async(params, settings, classifier=self.classifier)
+            req_scan = await scan_for_injection_async(
+                params, settings, classifier=self.classifier,
+                context=ScanContext("tool_request", agent=agent_id, tool=tool_name),
+            )
             if req_scan.detected:
                 correction = CorrectionInfo(
                     violation=ViolationType.INJECTION_DETECTED_REQUEST,
@@ -346,7 +349,10 @@ class Anvil:
         # --- Response path (only for untrusted tools) -----------------------
         if trust == "untrusted":
             if settings.injection_scanning and tool_cfg.injection_scanning:
-                resp_scan = await scan_for_injection_async(raw_data, settings, classifier=self.classifier)
+                resp_scan = await scan_for_injection_async(
+                    raw_data, settings, classifier=self.classifier,
+                    context=ScanContext("tool_response", agent=agent_id, tool=tool_name),
+                )
                 if resp_scan.detected:
                     correction = CorrectionInfo(
                         violation=ViolationType.INJECTION_DETECTED_RESPONSE,
@@ -459,7 +465,10 @@ class Anvil:
         payload = {"http_status": err.status, "body": err.body}
         settings = self.config.settings
         if trust == "untrusted" and settings.injection_scanning and tool_cfg.injection_scanning:
-            scan = await scan_for_injection_async(payload, settings, classifier=self.classifier)
+            scan = await scan_for_injection_async(
+                payload, settings, classifier=self.classifier,
+                context=ScanContext("tool_response", agent=agent_id, tool=tool_name),
+            )
             if scan.detected:
                 correction = CorrectionInfo(
                     violation=ViolationType.INJECTION_DETECTED_RESPONSE,
@@ -499,17 +508,20 @@ class Anvil:
         agent_id = self._agent_id(agent_id)
         return await self._check_agent_content(
             agent_id, content, "agent_input", ViolationType.INJECTION_DETECTED_AGENT_INPUT,
-            f"Input to agent '{agent_id}'", trace_id,
+            f"Input to agent '{agent_id}'", trace_id, ScanContext("input", agent=agent_id),
         )
 
     async def check_agent_output(
-        self, agent_id: str, content: Any, *, trace_id: str | None = None
+        self, agent_id: str, content: Any, *, trace_id: str | None = None, user_request: str | None = None
     ) -> AgentCheckResult:
-        """Check content an agent produced before it is used downstream."""
+        """Check content an agent produced before it is used downstream.
+        *user_request* (what the user asked this turn) helps an LLM classifier
+        tell a reply that does what was asked from one pushing other actions."""
         agent_id = self._agent_id(agent_id)
         return await self._check_agent_content(
             agent_id, content, "agent_output", ViolationType.INJECTION_DETECTED_AGENT_OUTPUT,
             f"Output from agent '{agent_id}'", trace_id,
+            ScanContext("output", agent=agent_id, user_request=user_request),
         )
 
     async def check_handoff(
@@ -540,7 +552,7 @@ class Anvil:
         if payload is not None:
             blocked = await self._scan_check_content(
                 from_agent, payload, ViolationType.INJECTION_DETECTED_HANDOFF,
-                f"Handoff from '{from_agent}' to '{to_agent}'",
+                f"Handoff from '{from_agent}' to '{to_agent}'", ScanContext("handoff", agent=from_agent),
             )
             if blocked is not None:
                 self._record_check(from_agent, "handoff", blocked, trace_id, to_agent)
@@ -557,6 +569,7 @@ class Anvil:
         violation: ViolationType,
         label: str,
         trace_id: str | None,
+        scan_context: ScanContext | None = None,
     ) -> AgentCheckResult:
         bound = self._binding_violation(agent_id)
         decision = (
@@ -569,19 +582,20 @@ class Anvil:
             self._record_check(agent_id, kind, decision.correction, trace_id)
             return AgentCheckResult(allowed=False, correction=decision.correction)
 
-        blocked = await self._scan_check_content(agent_id, content, violation, label)
+        blocked = await self._scan_check_content(agent_id, content, violation, label, scan_context)
         self._record_check(agent_id, kind, blocked, trace_id)
         if blocked is not None:
             return AgentCheckResult(allowed=False, correction=blocked)
         return AgentCheckResult(allowed=True)
 
     async def _scan_check_content(
-        self, agent_id: str, content: Any, violation: ViolationType, label: str
+        self, agent_id: str, content: Any, violation: ViolationType, label: str,
+        scan_context: ScanContext | None = None,
     ) -> CorrectionInfo | None:
         settings = self.config.settings
         if not settings.injection_scanning:
             return None
-        scan = await scan_for_injection_async(content, settings, classifier=self.classifier)
+        scan = await scan_for_injection_async(content, settings, classifier=self.classifier, context=scan_context)
         if not scan.detected:
             return None
         return CorrectionInfo(
