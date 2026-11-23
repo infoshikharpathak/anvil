@@ -1,6 +1,7 @@
 # Anvil
 
 [![CI](https://github.com/infoshikharpathak/anvil/actions/workflows/ci.yml/badge.svg)](https://github.com/infoshikharpathak/anvil/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/garrison-anvil.svg)](https://pypi.org/project/garrison-anvil/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/infoshikharpathak/anvil/blob/main/LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 
