@@ -111,7 +111,9 @@ def test_admin_digest_must_not_be_plaintext():
 
 
 def test_ui_fetch_helpers_send_admin_credential():
-    js = (Path(__file__).parent.parent / "registry/static/app.js").read_text()
+    import registry
+
+    js = (Path(registry.__file__).parent / "static" / "app.js").read_text()  # the installed copy
     post_json = js[js.index("async function postJSON"):]
     assert "apiFetch(url" in post_json[:200]
     api_fetch = js[js.index("function apiFetch"):js.index("async function postJSON")]
