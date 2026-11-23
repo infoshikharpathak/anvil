@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
-from anvil.config import load_config
+from anvil.config import ConfigError, load_config
 
 from .auth import ADMIN_KEY_ENV, AdminLoginRequired
 from .routes import policies, tools, traces, ui
@@ -18,8 +18,18 @@ from .storage import RegistryStorage
 CONFIG_PATH = os.environ.get("ANVIL_CONFIG", "anvil.yaml")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-app = FastAPI(title="Anvil Registry", version="0.1.0")
+try:
+    from importlib.metadata import version as _version
 
+    _VERSION = _version("garrison-anvil")
+except Exception:  # running from a checkout that isn't installed
+    _VERSION = "dev"
+
+app = FastAPI(title="Anvil Registry", version=_VERSION)
+
+if not Path(CONFIG_PATH).is_file():
+    # Started without the anvil-registry command (e.g. uvicorn directly).
+    raise ConfigError(f"Anvil registry: no config file at {CONFIG_PATH!r}; set ANVIL_CONFIG to your anvil.yaml.")
 _config = load_config(CONFIG_PATH)
 storage = RegistryStorage(
     _config,

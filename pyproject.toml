@@ -1,6 +1,6 @@
 [project]
 name = "garrison-anvil"
-version = "0.1.0"
+version = "0.1.1"
 description = "Framework-agnostic tool governance for agentic AI: policies, sequences, cross-app grants, credential injection and prompt-injection scanning on every tool call, plus an optional registry service."
 readme = "README.md"
 license = "Apache-2.0"

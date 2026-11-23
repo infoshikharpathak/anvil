@@ -60,7 +60,7 @@ pip install -e ".[dev]"
 python examples/mock_tools.py
 
 # Terminal 2: registry
-ANVIL_CONFIG=anvil.yaml anvil-registry --port 8100    # or: uvicorn anvil.registry.app:app --port 8100
+anvil-registry --config anvil.yaml --port 8100    # or: ANVIL_CONFIG=anvil.yaml uvicorn anvil.registry.app:app --port 8100
 
 # Terminal 3: demo
 python examples/demo.py

@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.1 (unreleased)
+
+- `anvil-registry` checks its config before starting: with no file (or an
+  invalid one) it prints one line saying which path it looked for and how
+  to point it at a config, and exits with status 2, instead of a
+  traceback. New `--config PATH` option (default: `ANVIL_CONFIG`, else
+  `./anvil.yaml`).
+- Starting the app another way (`uvicorn anvil.registry.app:app`) without a
+  config raises `ConfigError` naming `ANVIL_CONFIG`, not `FileNotFoundError`.
+- The registry's FastAPI version is the installed package version.
+
+## 0.1.0 (2026-11-23)
 
 First release on PyPI, as `garrison-anvil` (import `anvil`), one of the
 Garrison family of packages.
