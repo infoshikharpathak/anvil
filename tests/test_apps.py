@@ -114,8 +114,8 @@ def test_register_tool_with_app_prefix():
 
 
 def test_registry_schema_export_uses_short_name():
-    from registry.app import app
-    from registry.storage import RegistryStorage
+    from anvil.registry.app import app
+    from anvil.registry.storage import RegistryStorage
 
     app.state.storage = RegistryStorage(load_config_dict(_apps_config()))
     c = TestClient(app)

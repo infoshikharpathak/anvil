@@ -5,8 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from anvil.models import AnvilConfig
-from registry.app import app
-from registry.storage import RegistryStorage
+from anvil.registry.app import app
+from anvil.registry.storage import RegistryStorage
 
 CONFIG_DICT = {
     "tools": {

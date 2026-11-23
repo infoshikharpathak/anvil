@@ -108,8 +108,8 @@ async def test_grant_is_one_way():
 
 
 def test_registry_bundle_carries_grants():
-    from registry.app import app
-    from registry.storage import RegistryStorage
+    from anvil.registry.app import app
+    from anvil.registry.storage import RegistryStorage
 
     app.state.storage = RegistryStorage(load_config_dict(_raw(GRANTS)))
     bundle = TestClient(app).get("/policies/p").json()
@@ -117,8 +117,8 @@ def test_registry_bundle_carries_grants():
 
 
 def test_registry_policy_edit_validates_grants_against_all_policies():
-    from registry.app import app
-    from registry.storage import RegistryStorage
+    from anvil.registry.app import app
+    from anvil.registry.storage import RegistryStorage
 
     app.state.storage = RegistryStorage(load_config_dict(_raw(GRANTS)))
     c = TestClient(app)

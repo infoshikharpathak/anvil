@@ -6,9 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from anvil.config import load_config_dict
-from registry.app import app as registry_app
-from registry.auth import hash_api_key
-from registry.storage import RegistryStorage
+from anvil.registry.app import app as registry_app
+from anvil.registry.auth import hash_api_key
+from anvil.registry.storage import RegistryStorage
 
 ADMIN_KEY = "adm_test_5f0c2b7e9a"
 APP_KEY = "ik_test_ironclad_0123456789"
@@ -111,7 +111,7 @@ def test_admin_digest_must_not_be_plaintext():
 
 
 def test_ui_fetch_helpers_send_admin_credential():
-    import registry
+    import anvil.registry as registry
 
     js = (Path(registry.__file__).parent / "static" / "app.js").read_text()  # the installed copy
     post_json = js[js.index("async function postJSON"):]

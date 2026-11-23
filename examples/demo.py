@@ -2,7 +2,7 @@
 
 Run order:
     Terminal 1: python examples/mock_tools.py        # :8001
-    Terminal 2: uvicorn registry.app:app --port 8100  # (after `pip install -e .`)
+    Terminal 2: anvil-registry --port 8100  # (after `pip install -e ".[registry]"`)
     Terminal 3: python examples/demo.py
 """
 

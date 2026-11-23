@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 from anvil.client import Anvil
 from anvil.config import ConfigError, load_config_dict
 from anvil.models import ViolationType
-from registry.app import app as registry_app
-from registry.auth import hash_api_key
-from registry.storage import RegistryStorage
+from anvil.registry.app import app as registry_app
+from anvil.registry.auth import hash_api_key
+from anvil.registry.storage import RegistryStorage
 
 APP_KEY = "ik_test_ironclad_0123456789"
 
