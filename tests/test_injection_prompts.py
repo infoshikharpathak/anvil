@@ -153,10 +153,10 @@ async def test_host_headers_are_sent_but_never_replace_auth(monkeypatch):
     a = Anvil(load_config_dict(raw), "p", app="bank", session_id="s",
               classifier=lambda text, context=None: _ok())
     a._transport = httpx.MockTransport(lambda r: (seen.append(r), httpx.Response(200, json={"memo": "x"}))[1])
-    await a.execute("agent", "memo", {}, host_headers={"X-Bastion-Call-Chain": "hub.assistant",
+    await a.execute("agent", "memo", {}, host_headers={"X-Garrison-Call-Chain": "hub.assistant",
                                                        "authorization": "Bearer forged"})
     (req,) = seen
-    assert req.headers["x-bastion-call-chain"] == "hub.assistant"
+    assert req.headers["x-garrison-call-chain"] == "hub.assistant"
     assert req.headers["authorization"] == "Bearer real"
 
 

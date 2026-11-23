@@ -87,7 +87,7 @@ async def test_array_response_reaches_the_agent_unchanged(anvil):
     resp = await anvil.execute("agent", "list_restaurants", {})
     assert resp.success is True and resp.tool_executed is True and resp.correction is None
     assert resp.data == RESTAURANTS  # the array itself, not wrapped
-    assert resp.model_dump(mode="json")["data"] == RESTAURANTS  # what bastion serializes for the model
+    assert resp.model_dump(mode="json")["data"] == RESTAURANTS  # what Garrison serializes for the model
     call = _last(anvil)
     assert (call.tool, call.result, call.violation) == ("food.list_restaurants", CallResult.SUCCESS, None)
     assert anvil.trace.build_payload()["summary"]["successful"] == 1

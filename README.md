@@ -1,7 +1,7 @@
 # Anvil
 
 [![CI](https://github.com/infoshikharpathak/anvil/actions/workflows/ci.yml/badge.svg)](https://github.com/infoshikharpathak/anvil/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/infoshikharpathak/anvil/blob/main/LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 
 Framework-agnostic tool governance for agentic AI pipelines. Enforces execution policy, validates tool responses, and keeps agents on track — without crashing the pipeline.
@@ -36,9 +36,21 @@ Framework-agnostic tool governance for agentic AI pipelines. Enforces execution 
 
 Enforcement happens in-process, in the library. If the registry is down mid-pipeline, an already-initialized `Anvil` instance keeps running on its cached policy — the registry is only in the critical path at startup (fetch) and shutdown (trace flush).
 
+## Install
+
+```bash
+pip install anvil-ai                  # the library: import anvil
+pip install "anvil-ai[registry]"      # plus the registry service: uvicorn registry.app:app
+```
+
+Python 3.11 or newer. The import name is `anvil`; the unrelated
+`anvil-uplink` package installs a module with the same name, so don't
+install both in one environment.
+
 ## Quick Start
 
 ```bash
+git clone https://github.com/infoshikharpathak/anvil && cd anvil
 pip install -e ".[dev]"
 
 # Terminal 1: mock tools
@@ -96,7 +108,7 @@ sent to your Ironclad app") in ways hand-written cases don't. Output-scan
 evals now use **sampled real replies**: the real agents run on scripted
 scenarios (transfers, "can I...?", refusals, policy answers, OTP questions,
 planted-injection attacks), each reply is labeled and the set is split by
-scenario. See [`evals/replies/README.md`](evals/replies/README.md).
+scenario. See [`evals/replies/README.md`](https://github.com/infoshikharpathak/anvil/blob/main/evals/replies/README.md).
 
 **What the output check does now** (`check_agent_output`):
 1. `anvil.output_guard`, no LLM: blocks a standalone 6-digit code, or a
@@ -124,14 +136,14 @@ the 5 near-misses. The two sets' numbers are reported apart.
 three scan directions (a user's message, a tool's response, an agent's reply)
 and a runner that reports precision, recall and false-positive rate per
 direction, how verdicts vary between runs, and cost. See
-[`evals/injection/README.md`](evals/injection/README.md).
+[`evals/injection/README.md`](https://github.com/infoshikharpathak/anvil/blob/main/evals/injection/README.md).
 
 **Why:** a live FoodDash agent reply that explained a refused payment
 ("Ironclad has refused the payment request due to their policy not allowing
 AI agents to request payments") was blocked by the output scan as an
 injection, so the user never saw it.
 
-**Method:** baseline first on both sets (bastion's prompt, gpt-4o-mini, 3
+**Method:** baseline first on both sets (Garrison's prompt, gpt-4o-mini, 3
 runs). Then, on the dev set only, a per-direction prompt: agent replies get
 a note saying that explaining refusals, limits and policies, and sending the
 user to their own bank app to approve with an OTP, are normal; only
@@ -185,7 +197,7 @@ OTP (3/3 runs). The base prompt flagged none of the 11. Weighing that, the
 output_context variant is now the default for output scans (at temperature
 0, as measured); every other direction keeps the base prompt and API-default
 temperature. `variant="base"` restores the old behavior. When an output scan
-blocks a reply, bastion falls back to a reply built from the turn's tool
+blocks a reply, Garrison falls back to a reply built from the turn's tool
 results, so a false positive costs the user the agent's wording, not the
 information.
 
@@ -195,7 +207,7 @@ added to the test set afterwards; the default output prompt flags it in 3/3
 runs (`evals/injection/results/round3/`).
 
 Classifiers receive a `ScanContext` (direction, agent, tool, and for output
-the user's request) when they accept a `context` argument; bastion's
+the user's request) when they accept a `context` argument; Garrison's
 classifier builds its prompt with `classifier_prompt()`.
 
 **Known limits:** 50 hand-written or hand-picked cases, labeled by one

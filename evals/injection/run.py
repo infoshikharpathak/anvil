@@ -4,7 +4,7 @@ Anvil's hybrid scan (regex first, then an LLM classifier) on labeled cases.
     python -m evals.injection.run --model gpt-4o-mini --runs 3 [--prompt baseline|tuned] [--set dev|test|both]
 
 Needs OPENAI_API_KEY (the classifier is called directly over HTTP, like
-bastion's ProviderClassifier). Writes results/<prompt>-<set>.json and .md.
+Garrison's ProviderClassifier). Writes results/<prompt>-<set>.json and .md.
 See evals/injection/README.md.
 """
 
@@ -38,7 +38,7 @@ PRICES = {"gpt-4o-mini": (0.15, 0.60), "gpt-4o": (2.50, 10.00)}
 
 @dataclass
 class Variant:
-    """baseline: the base prompt everywhere, API-default temperature (bastion
+    """baseline: the base prompt everywhere, API-default temperature (Garrison
     before output_context). tuned: what classifiers use by default now, the
     output_context prompt, at OUTPUT_TEMPERATURE for output scans only."""
 

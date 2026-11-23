@@ -32,7 +32,7 @@ python -m evals.injection.run --model gpt-4o-mini --runs 3 --prompt tuned --set 
 ```
 
 - `--prompt baseline`: `BASE_PROMPT` for every direction, API-default
-  temperature. This is exactly what bastion's classifier sends.
+  temperature. This is exactly what Garrison's classifier sends.
 - `--prompt tuned`: what classifiers use by default now: the
   `output_context` variant of `anvil.injection_prompts.classifier_prompt`
   (a note for agent replies; other directions unchanged), temperature 0 for
