@@ -2,7 +2,14 @@
 
 ## 0.1.0 (unreleased)
 
-First release on PyPI, as `anvil-ai` (import `anvil`).
+First release on PyPI, as `garrison-anvil` (import `anvil`), one of the
+Garrison family of packages.
+
+- **License:** Apache-2.0 (was MIT).
+- **Packaging:** the registry moved from a top-level `registry` package to
+  `anvil.registry`, so the wheel installs only `anvil`. Run it with
+  `anvil-registry` (or `uvicorn anvil.registry.app:app`); its templates and
+  static files ship in the wheel.
 
 - **Policies:** allowed tools, sequence rules (`requires`, `requires_any`),
   strictness and trust per agent, checked on every tool call by
@@ -23,7 +30,7 @@ First release on PyPI, as `anvil-ai` (import `anvil`).
 - **Tool responses:** parameters checked against their schema, JSON array
   responses accepted, withheld results for the host only.
 - **Traces:** `trace_id` on `execute()`, recorded with every call.
-- **Registry** (`pip install "anvil-ai[registry]"`): FastAPI service for
+- **Registry** (`pip install "garrison-anvil[registry]"`): FastAPI service for
   policies, tools and traces, per-app hashed API keys, an admin key for the
   UI and policy writes, and a server-rendered UI.
 

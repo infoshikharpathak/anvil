@@ -1,9 +1,9 @@
 [project]
-name = "anvil-ai"
+name = "garrison-anvil"
 version = "0.1.0"
 description = "Framework-agnostic tool governance for agentic AI: policies, sequences, cross-app grants, credential injection and prompt-injection scanning on every tool call, plus an optional registry service."
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Shikhar Pathak" }]
 requires-python = ">=3.11"
@@ -21,8 +21,8 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-# The anvil library. The registry service (package "registry") needs the
-# [registry] extra.
+# The anvil library. The registry service (anvil.registry, the
+# anvil-registry command) needs the [registry] extra.
 dependencies = [
   "pydantic>=2.0,<3",
   "httpx>=0.27",
@@ -37,10 +37,13 @@ registry = [
   "python-multipart>=0.0.9",
 ]
 dev = [
-  "anvil-ai[registry]",
+  "garrison-anvil[registry]",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
 ]
+
+[project.scripts]
+anvil-registry = "anvil.registry.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/infoshikharpathak/anvil"
@@ -53,15 +56,14 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["anvil", "registry", "registry.routes"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["anvil*"]
 
 [tool.setuptools.package-data]
-registry = ["templates/*.html", "static/*"]
-
-[tool.setuptools.package-dir]
-anvil = "src/anvil"
-registry = "registry"
-"registry.routes" = "registry/routes"
+"anvil.registry" = ["templates/*.html", "static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

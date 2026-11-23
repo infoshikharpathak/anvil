@@ -1,7 +1,7 @@
 # Anvil
 
 [![CI](https://github.com/infoshikharpathak/anvil/actions/workflows/ci.yml/badge.svg)](https://github.com/infoshikharpathak/anvil/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/infoshikharpathak/anvil/blob/main/LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/infoshikharpathak/anvil/blob/main/LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 
 Framework-agnostic tool governance for agentic AI pipelines. Enforces execution policy, validates tool responses, and keeps agents on track — without crashing the pipeline.
@@ -39,13 +39,15 @@ Enforcement happens in-process, in the library. If the registry is down mid-pipe
 ## Install
 
 ```bash
-pip install anvil-ai                  # the library: import anvil
-pip install "anvil-ai[registry]"      # plus the registry service: uvicorn registry.app:app
+pip install garrison-anvil                 # the library
+pip install "garrison-anvil[registry]"     # plus the registry service (the anvil-registry command)
 ```
 
-Python 3.11 or newer. The import name is `anvil`; the unrelated
-`anvil-uplink` package installs a module with the same name, so don't
-install both in one environment.
+**The install name and the import name differ:** you install
+`garrison-anvil` and import `anvil` (the registry is `anvil.registry`). It is
+published as part of the [Garrison](https://github.com/infoshikharpathak/garrison)
+family. Python 3.11 or newer. The unrelated `anvil-uplink` package also
+installs a module named `anvil`, so don't install both in one environment.
 
 ## Quick Start
 
@@ -57,7 +59,7 @@ pip install -e ".[dev]"
 python examples/mock_tools.py
 
 # Terminal 2: registry
-ANVIL_CONFIG=anvil.yaml uvicorn registry.app:app --port 8100
+ANVIL_CONFIG=anvil.yaml anvil-registry --port 8100    # or: uvicorn anvil.registry.app:app --port 8100
 
 # Terminal 3: demo
 python examples/demo.py
@@ -424,3 +426,7 @@ Use `injection_scanning: false` on a tool to skip scanning for it.
 ## Why Not Just Use Prompts?
 
 Telling the model "always verify before paying" in a system prompt degrades under compounding probability — a 98%-reliable instruction followed 20 times in a session is under 70% reliable across the session, and that's before an indirect prompt injection in a tool response tries to override it deliberately. Anvil moves the control outside the model: it can't be argued out of a rule, and every decision is logged with the exact call history that triggered it — which a prompt-only approach can't give you for an audit.
+
+## License
+
+Apache License 2.0. See [LICENSE](https://github.com/infoshikharpathak/anvil/blob/main/LICENSE).
